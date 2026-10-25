@@ -1,34 +1,43 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Photo } from '../data/types';
 import { getBlob } from '../lib/db';
+import { storageUrl } from '../sync/client';
 import { photoStamp } from '../lib/format';
 import { useStore } from '../store/store';
 
 // Photos picked on this phone are stored as blobs in IndexedDB; demo photos are remote URLs.
 const urlCache = new Map<string, string>();
 
-export function usePhotoUrl(p: { src?: string; blobKey?: string } | null | undefined) {
+type PhotoRef = { id?: string; src?: string; blobKey?: string; path?: string; displayPath?: string };
+
+/** Demo URL, the file on this phone, an offline copy, or the shared archive's copy – in that order. */
+export function usePhotoUrl(p: PhotoRef | null | undefined) {
   const key = p?.blobKey;
-  const [url, setUrl] = useState<string | undefined>(() => p?.src ?? (key ? urlCache.get(key) : undefined));
+  const remote = p?.displayPath || p?.path;
+  const cacheId = key || (p?.id && remote ? 'r:' + p.id : undefined);
+  const [url, setUrl] = useState<string | undefined>(() => p?.src ?? (cacheId ? urlCache.get(cacheId) : undefined));
   useEffect(() => {
     if (p?.src) { setUrl(p.src); return; }
-    if (!key) { setUrl(undefined); return; }
-    const hit = urlCache.get(key);
+    if (!cacheId) { setUrl(undefined); return; }
+    const hit = urlCache.get(cacheId);
     if (hit) { setUrl(hit); return; }
     let live = true;
-    getBlob(key).then(b => {
-      if (!b || !live) return;
-      const u = URL.createObjectURL(b);
-      urlCache.set(key, u);
+    (async () => {
+      let u: string | null = null;
+      const b = key ? await getBlob(key) : null;
+      if (b) u = URL.createObjectURL(b);
+      else if (p?.id && remote) u = await storageUrl({ id: p.id, path: p.path, displayPath: p.displayPath }).catch(() => null);
+      if (!u || !live) return;
+      urlCache.set(cacheId, u);
       setUrl(u);
-    });
+    })();
     return () => { live = false; };
-  }, [p?.src, key]);
+  }, [p?.src, cacheId, remote]);
   return url;
 }
 
 /** An <img> that hides itself if the file can't be loaded, leaving the paper-toned placeholder. */
-export function Img({ photo, alt = '', className = 'fill', style, fit }: { photo: { src?: string; blobKey?: string } | null | undefined; alt?: string; className?: string; style?: CSSProperties; fit?: 'cover' | 'contain' }) {
+export function Img({ photo, alt = '', className = 'fill', style, fit }: { photo: PhotoRef | null | undefined; alt?: string; className?: string; style?: CSSProperties; fit?: 'cover' | 'contain' }) {
   const url = usePhotoUrl(photo);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);

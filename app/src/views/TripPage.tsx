@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
-import { Avatar, BackLink, Empty } from '../components/bits';
+import { BackLink, Empty } from '../components/bits';
 import ConfirmDialog, { DeleteLink } from '../components/ConfirmDialog';
 import { Img } from '../components/Photo';
-import { fmtTime, PEOPLE } from '../lib/format';
+import { PEOPLE } from '../lib/format';
 import { paths, useBack, type TripTab } from '../lib/nav';
 import { scrollToMem, usePageTitle } from '../lib/page';
 import { tripMeta } from '../store/derive';
@@ -12,6 +12,7 @@ import { DaysTab, PhotosTab } from './trip/DaysPhotosTabs';
 import OfflineBox from './trip/OfflineBox';
 import PlacesTab from './trip/PlacesTab';
 import StoryTab from './trip/StoryTab';
+import ConflictPanel from './trip/ConflictPanel';
 
 const TABS: [TripTab, string][] = [['historien', 'Historien'], ['dager', 'Dager'], ['steder', 'Steder'], ['bilder', 'Bilder']];
 
@@ -42,8 +43,6 @@ export default function TripPage() {
     if (navType !== 'POP' && selMem) scrollToMem(selMem);
   }, [tripId]);
 
-  const [conflictOpen, setConflictOpen] = useState(false);
-  const [mergeText, setMergeText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!raw) {
@@ -52,7 +51,6 @@ export default function TripPage() {
   const trip = tripMeta(s, raw);
   const isM = s.isMobile;
   const me = PEOPLE[s.user];
-  const conflict = raw.conflict ? { ...raw.conflict, author: PEOPLE[raw.conflict.by] } : null;
 
   const setTab = (t: TripTab) => { update({ fane: t }); if (selMem && (t === 'historien' || t === 'steder')) scrollToMem(selMem); };
   const addMemory = () => { startMemory(trip.id); navigate(paths.newMemory()); };
@@ -62,9 +60,7 @@ export default function TripPage() {
   const openMem = (id: string) => navigate(paths.memory(id));
   const showOnMap = (id: string) => { update({ fane: 'steder', vis: 'kart', minne: id }); scrollToMem(id); };
   const inStory = (id: string) => { update({ fane: 'historien', minne: id }); scrollToMem(id); };
-  const resolve = (text: string) => { resolveConflict(trip.id, text); setConflictOpen(false); };
   const showAside = !isM && tab !== 'steder';
-  const mutedSmall = { minHeight: 38, padding: '0 12px', borderRadius: 999, border: '1px solid var(--line-strong)', background: 'transparent', fontSize: 13, fontWeight: 500 };
 
   return (
     <>
@@ -83,37 +79,7 @@ export default function TripPage() {
         </div>
       </section>
 
-      {conflict && (
-        <>
-          <div className="row wrap" style={{ marginTop: 16, background: 'var(--paper)', border: '1px solid var(--terracotta)', borderRadius: 10, padding: '14px 16px', gap: 12, alignItems: 'flex-start' }}>
-            <Avatar who={conflict.author} size={26} />
-            <div style={{ flex: 1, minWidth: 200, fontSize: 14 }}><strong>{conflict.author.name} endret innledningen samtidig som deg</strong> ({fmtTime(conflict.at)}). Begge versjonene er beholdt. Sammenlign før dere lagrer en felles versjon.</div>
-            <button className="btn btn-primary btn-sm" onClick={() => { setConflictOpen(true); setMergeText(conflict.theirs); }}>Sammenlign</button>
-          </div>
-          {conflictOpen && (
-            <div className="card-sm fade" style={{ marginTop: 10, padding: 16, borderColor: 'rgba(46,53,47,.15)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
-                <div style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
-                  <div className="eyebrow" style={{ marginBottom: 6 }}>Din versjon ({me.name})</div>
-                  <p className="serif" style={{ margin: '0 0 10px', fontSize: 17 }}>{conflict.mine}</p>
-                  <button style={mutedSmall} onClick={() => resolve(conflict.mine)}>Behold min</button>
-                </div>
-                <div style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
-                  <div className="eyebrow" style={{ marginBottom: 6 }}>{conflict.author.name}s versjon</div>
-                  <p className="serif" style={{ margin: '0 0 10px', fontSize: 17 }}>{conflict.theirs}</p>
-                  <button style={mutedSmall} onClick={() => resolve(conflict.theirs)}>Behold {conflict.author.name}s</button>
-                </div>
-              </div>
-              <div className="eyebrow" style={{ margin: '14px 0 6px' }}>Eller skriv en felles versjon</div>
-              <textarea className="input" rows={3} value={mergeText} onChange={e => setMergeText(e.target.value)} aria-label="Felles versjon" style={{ padding: '10px 12px', fontSize: 17 }} />
-              <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-                <button className="btn btn-dark btn-sm" style={{ padding: '0 16px' }} onClick={() => resolve(mergeText)}>Lagre felles versjon</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setConflictOpen(false)}>Avbryt</button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {raw.conflict && <ConflictPanel conflict={raw.conflict} me={me} what="innledningen" onResolve={text => resolveConflict(trip.id, text)} />}
 
       <div className="row wrap" style={{ gap: 8, margin: '16px 0 8px' }}>
         <button className="btn btn-primary" onClick={addMemory}>+ Legg til minne</button>

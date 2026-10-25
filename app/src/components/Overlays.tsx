@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PEOPLE, fmtTime, otherPerson } from '../lib/format';
 import { paths } from '../lib/nav';
 import { colors, queueStatus } from '../store/derive';
-import { isOnline, retryAll, runQueue, setSimOnline, simulateConflict, startImport, startMemory, useStore } from '../store/store';
+import { isOnline, retryAll, startImport, startMemory, useStore } from '../store/store';
 import { Avatar, Dot } from './bits';
 import { Img, stamp } from './Photo';
 
@@ -108,8 +108,10 @@ export function SyncPanel() {
   const qs = queueStatus(s);
   const online = isOnline(s);
   const other = PEOPLE[otherPerson(s.user)].name;
-  const label = (i: (typeof s.queue)[number]) => ({ venter: online ? 'Venter' : 'Venter på nett', laster: 'Laster opp ' + i.done + ' av ' + i.photos + ' bilder', feil: 'Kunne ikke lagres – ' + i.done + ' av ' + i.photos + ' bilder sendt', synk: 'Synkronisert' })[i.status];
+  const cloud = s.mode === 'cloud';
+  const label = (i: (typeof s.queue)[number]) => ({ venter: online ? 'Venter' : 'Venter på nett', laster: i.photos ? 'Laster opp ' + i.done + ' av ' + i.photos + ' bilder' : 'Sender …', feil: 'Kunne ikke sendes – ' + i.done + ' av ' + i.photos + ' bilder sendt', synk: 'Synkronisert' })[i.status];
   const color = (i: (typeof s.queue)[number]) => ({ venter: colors.amber, laster: colors.terracotta, feil: colors.terracotta, synk: colors.oliveDeep })[i.status];
+  const otherChanges = Math.max(0, s.sync.pending - s.queue.length);
   return (
     <div className="scrim" onClick={close} style={{ alignItems: 'flex-start' }}>
       <div role="dialog" aria-modal="true" aria-label="Synkronisering" className="dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, gap: 12, marginTop: 24 }}>
@@ -118,41 +120,35 @@ export function SyncPanel() {
           <button onClick={close} aria-label="Lukk" className="icon-btn" style={{ fontSize: 22 }}>×</button>
         </div>
         <div className="row" style={{ gap: 8, fontWeight: 600, color: qs.tone }}><Dot color={qs.tone} size={10} />{qs.label}</div>
-        <div className="small muted">Siste vellykkede synkronisering: {fmtTime(s.lastSync)}. Når nettet er tilbake, sendes køen. Du kan også åpne appen og fortsette herfra.</div>
-        {s.queue.length > 0 ? (
-          <div className="stack">
-            {s.queue.map(i => {
-              const m = s.memories.find(x => x.id === i.id);
-              return (
-                <div key={i.id} className="row" style={{ gap: 10, padding: '10px 0', borderTop: '1px solid rgba(46,53,47,.08)', fontSize: 14 }}>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontWeight: 500 }}>{i.kind} · {i.title}</span>
-                    <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{i.photos} bilder · skrivestatus: {m ? (m.writeStatus === 'arbeid' ? 'Under arbeid' : 'Ferdig') : ''}</span>
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: color(i), textAlign: 'right' }}>{label(i)}</span>
-                </div>
-              );
-            })}
-          </div>
+        {!cloud ? (
+          <div className="small muted">Appen er ikke koblet til det felles arkivet. Alt lagres bare på denne telefonen, og {other} ser det ikke.</div>
         ) : (
-          <div style={{ padding: 12, border: '1px dashed rgba(46,53,47,.25)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>Ingenting venter. Alt som er lagret her finnes også på {other}s telefon.</div>
-        )}
-        {online && s.queue.some(i => i.status === 'venter') && <button className="btn btn-dark" onClick={() => runQueue(false)}>Fortsett synkronisering nå</button>}
-        {s.queue.some(i => i.status === 'feil') && <button className="btn btn-primary" onClick={retryAll}>Prøv igjen</button>}
-        <p className="xs muted">Lokal lagring betyr ikke at innholdet er på den andre telefonen eller sikkerhetskopiert.</p>
-        <div className="stack" style={{ borderTop: '1px solid var(--line)', paddingTop: 12, gap: 8 }}>
-          <div className="eyebrow">Simuler tilstander</div>
-          <div className="row wrap" style={{ gap: 8 }}>
-            {!s.simOffline ? (
-              <button className="btn btn-outline clear btn-sm" style={{ fontSize: 13 }} onClick={() => setSimOnline(false)}>Simuler uten nett</button>
+          <>
+            <div className="small muted">Siste vellykkede synkronisering: {fmtTime(s.lastSync)}. Endringer sendes med en gang når det er nett, og når appen åpnes igjen. Store opplastinger fortsetter bare mens appen er åpen.</div>
+            {s.queue.length > 0 || otherChanges > 0 ? (
+              <div className="stack">
+                {s.queue.map(i => {
+                  const m = s.memories.find(x => x.id === i.id);
+                  return (
+                    <div key={i.id} className="row" style={{ gap: 10, padding: '10px 0', borderTop: '1px solid rgba(46,53,47,.08)', fontSize: 14 }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontWeight: 500 }}>{i.kind} · {i.title}</span>
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{i.photos} bilder fra denne telefonen · skrivestatus: {m ? (m.writeStatus === 'arbeid' ? 'Under arbeid' : 'Ferdig') : ''}</span>
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: color(i), textAlign: 'right' }}>{label(i)}</span>
+                    </div>
+                  );
+                })}
+                {otherChanges > 0 && <div className="small muted" style={{ padding: '10px 0', borderTop: '1px solid rgba(46,53,47,.08)' }}>{otherChanges} andre endring{otherChanges === 1 ? '' : 'er'} (reiser, steder, drømmer) venter på å bli sendt.</div>}
+              </div>
             ) : (
-              <button className="btn btn-olive btn-sm" style={{ fontSize: 13 }} onClick={() => setSimOnline(true)}>Nett tilbake</button>
+              <div style={{ padding: 12, border: '1px dashed rgba(46,53,47,.25)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>Ingenting venter. Alt som er lagret her finnes også på {other}s telefon.</div>
             )}
-            <button className="chip chip-lg" aria-pressed={s.lowStorage} onClick={() => useStore.setState(st => ({ lowStorage: !st.lowStorage }))}>Lite plass på telefonen</button>
-            <button className="chip chip-lg" onClick={simulateConflict}>Simuler kollisjon</button>
-          </div>
-          {!s.realOnline && <p className="xs muted">Telefonen er faktisk uten nett nå.</p>}
-        </div>
+            {s.sync.phase === 'error' && <p className="small" style={{ color: 'var(--terracotta)' }}>Serveren svarte ikke som forventet. Alt er fortsatt lagret på denne telefonen. Nytt forsøk lager ikke duplikater.</p>}
+            {online && (s.sync.pending > 0 || s.sync.phase === 'error') && <button className={'btn ' + (s.sync.phase === 'error' ? 'btn-primary' : 'btn-dark')} onClick={retryAll}>{s.sync.phase === 'error' ? 'Prøv igjen' : 'Fortsett synkronisering nå'}</button>}
+          </>
+        )}
+        <p className="xs muted">Synkronisering er ikke en sikkerhetskopi: sletter en av dere noe, forsvinner det hos begge. Last ned en kopi under Innstillinger → Eksport.</p>
       </div>
     </div>
   );

@@ -73,3 +73,13 @@ export function writePref(key: string, value: unknown) {
     /* private mode */
   }
 }
+
+export async function getKv<T>(key: string): Promise<T | null> {
+  return ((await (await db()).get('kv', key)) as T | undefined) ?? null;
+}
+export async function putKv(key: string, value: unknown): Promise<void> {
+  await (await db()).put('kv', value, key);
+}
+export async function deleteKv(key: string): Promise<void> {
+  await (await db()).delete('kv', key);
+}

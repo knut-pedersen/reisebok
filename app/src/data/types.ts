@@ -8,6 +8,10 @@ export interface Photo {
   src?: string;
   /** Key in the IndexedDB blob store for photos picked on this phone. */
   blobKey?: string;
+  /** Original file in cloud storage, once uploaded. */
+  path?: string;
+  /** Smaller copy for fast display, once uploaded. */
+  displayPath?: string;
   w: number;
   h: number;
   caption: string;
@@ -68,6 +72,7 @@ export interface Memory {
   imported?: boolean;
   /** Imported photos that should only appear under «Bilder». */
   galleryOnly?: boolean;
+  conflict?: Conflict | null;
 }
 
 export type StoryBlock =
@@ -83,8 +88,9 @@ export interface Day {
 
 export type TripPrecision = 'dag' | 'maned' | 'ar' | 'ukjent';
 
+/** Both of you changed the same shared text. Kept on this phone only, until one version is chosen. */
 export interface Conflict {
-  field: 'intro';
+  field: 'intro' | 'text';
   by: PersonId;
   at: string;
   mine: string;
@@ -137,6 +143,9 @@ export interface OfflineDl {
   status: 'laster' | 'pause' | 'klar';
   pct: number;
   scope: OfflineScope;
+  /** Photos to download, and how many could not be fetched. */
+  total?: number;
+  failed?: number;
 }
 
 /** Everything that is stored on this phone. */

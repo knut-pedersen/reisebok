@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { Archive, Dream, ImportItem, Memory, OfflineScope, PersonId, Photo, Place, QueueItem, StoryBlock, Trip, TripPrecision, MemType, WriteStatus } from '../data/types';
+import type { SyncState } from '../sync/engine';
+import type { Archive, Dream, ImportItem, Memory, OfflineScope, PersonId, Photo, Place, StoryBlock, Trip, TripPrecision, MemType, WriteStatus } from '../data/types';
 import { demoArchive, importDemo } from '../data/demo';
-import { deleteBlob, isQuotaError, loadArchive, putBlob, readPref, requestPersistence, saveArchive, writePref } from '../lib/db';
+import { deleteBlob, getBlob, isQuotaError, loadArchive, putBlob, readPref, requestPersistence, saveArchive, writePref } from '../lib/db';
 import { fmtDate, otherPerson, PEOPLE, uid } from '../lib/format';
 
 // ---------------------------------------------------------------------------
@@ -52,8 +53,11 @@ interface UiState {
   user: PersonId;
   loggedIn: boolean;
   realOnline: boolean;
-  simOffline: boolean;
-  lowStorage: boolean;
+  /** 'cloud' when Supabase is configured (shared archive), 'local' for development without a server. */
+  mode: 'local' | 'cloud';
+  authState: 'checking' | 'signedOut' | 'signedIn' | 'noAccess';
+  email: string;
+  sync: SyncState;
   isMobile: boolean;
   toasts: { id: number; text: string }[];
   addOpen: boolean;
@@ -84,6 +88,8 @@ interface UiState {
   exportSel: string;
   exportStep: 0 | 1 | 2 | 3;
   exportPct: number;
+  /** Shown when building the ZIP failed. */
+  exportError: string;
   exportFormat: 'pdf' | 'zip';
   offlinePick: string | null;
   /** Title shown in the mobile top bar. */
@@ -92,6 +98,8 @@ interface UiState {
 
 export type State = Archive & UiState;
 
+const CLOUD = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+
 const emptyNewTrip = (): NewTripForm => ({ title: '', dest: '', precision: 'dag', start: '', end: '' });
 const emptyNewMem = (tripId: string): NewMemForm => ({ title: '', text: '', date: '', month: '', precision: 'dag', writeStatus: 'arbeid', placeId: '', type: 'hverdag', tripId, comment: '', photos: [] });
 
@@ -99,10 +107,12 @@ export const useStore = create<State>()(() => ({
   ...demoArchive(),
   ready: false,
   user: readPref<PersonId>('user', 'knut'),
-  loggedIn: readPref<boolean>('loggedIn', false),
+  loggedIn: CLOUD ? false : readPref<boolean>('loggedIn', false),
   realOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
-  simOffline: false,
-  lowStorage: false,
+  mode: CLOUD ? 'cloud' : 'local',
+  authState: 'checking',
+  email: '',
+  sync: { phase: 'off', pending: 0, photosTotal: 0, photosDone: 0 },
   isMobile: typeof window === 'undefined' ? false : window.innerWidth < 820,
   toasts: [],
   addOpen: false,
@@ -129,6 +139,7 @@ export const useStore = create<State>()(() => ({
   exportSel: 'cannes-2025',
   exportStep: 0,
   exportPct: 0,
+  exportError: '',
   exportFormat: 'zip',
   offlinePick: null,
   pageTitle: '',
@@ -137,7 +148,10 @@ export const useStore = create<State>()(() => ({
 const get = useStore.getState;
 const set = useStore.setState;
 
-export const isOnline = (s: State = get()) => s.realOnline && !s.simOffline;
+export const isOnline = (s: State = get()) => s.realOnline;
+
+/** Set by the sync client so store actions can ask for a sync without importing it. */
+export const hooks = { syncNow: () => {} };
 
 // ---------------------------------------------------------------------------
 // Persistence: the archive is written to IndexedDB after every change.
@@ -161,8 +175,6 @@ export async function initStore() {
     try { await saveArchive(a); } catch { /* ignore */ }
   }
   lastSaved = a;
-  // Upload progress is never assumed to continue while the app was closed.
-  a.queue = a.queue.map(i => (i.status === 'laster' ? { ...i, status: 'venter' as const } : i));
   Object.entries(a.offlineDl).forEach(([k, d]) => { if (d.status === 'laster') a!.offlineDl[k] = { ...d, status: 'pause' }; });
   set({ ...a, ready: true, newMem: emptyNewMem(a.trips.find(t => t.status !== 'ferdig')?.id ?? a.trips[0]?.id ?? '') });
   requestPersistence();
@@ -176,13 +188,14 @@ export async function initStore() {
   });
   useStore.subscribe((s, prev) => {
     if (s.user !== prev.user) writePref('user', s.user);
-    if (s.loggedIn !== prev.loggedIn) writePref('loggedIn', s.loggedIn);
+    if (s.loggedIn !== prev.loggedIn && s.mode === 'local') writePref('loggedIn', s.loggedIn);
   });
 
   const onNet = () => {
     const was = isOnline();
     set({ realOnline: navigator.onLine });
-    if (!was && isOnline()) { toast('Nett tilbake – sender køen'); runQueue(false); }
+    if (!was && isOnline() && get().mode === 'cloud' && get().sync.pending > 0) toast('Nett tilbake – sender det som venter');
+    if (isOnline()) hooks.syncNow();
   };
   window.addEventListener('online', onNet);
   window.addEventListener('offline', onNet);
@@ -226,81 +239,29 @@ export function withDay(t: Trip, mem: Memory): Trip {
 }
 
 // ---------------------------------------------------------------------------
-// Session (simulated login)
+// Session. With a server, login is by e-mail code (sync/client.ts); without one
+// (local development) these pick a person on this device.
 // ---------------------------------------------------------------------------
 
 export const login = (who: PersonId) => set({ user: who, loggedIn: true });
 export const logout = () => set({ loggedIn: false });
 export const switchUser = () => {
   set(s => ({ user: otherPerson(s.user) }));
-  toast('Du er nå ' + PEOPLE[get().user].name + ' (simulert)');
+  toast('Du er nå ' + PEOPLE[get().user].name);
 };
 
-// ---------------------------------------------------------------------------
-// Sync (simulated server, real local queue)
-// ---------------------------------------------------------------------------
-
-export function setSimOnline(on: boolean) {
-  set({ simOffline: !on });
-  toast(on ? 'Nett tilbake – sender køen' : 'Simulerer: uten nett');
-  if (on && isOnline()) runQueue(false);
-}
-
-export function runQueue(retry: boolean) {
-  set(s => ({ queue: s.queue.map(i => (i.status === 'venter' || (retry && i.status === 'feil') ? { ...i, status: 'laster' as const } : i)) }));
-  tick();
-}
-
-function writeLabelFor(id: string) {
-  const m = get().memories.find(x => x.id === id);
-  return m && m.writeStatus === 'ferdig' ? 'Ferdig' : 'Under arbeid – den andre kan fortsette å skrive';
-}
-
-function tick() {
-  const s = get();
-  if (!isOnline(s)) {
-    set({ queue: s.queue.map(i => (i.status === 'laster' ? { ...i, status: 'venter' as const } : i)) });
-    return;
-  }
-  const cur = s.queue.find(i => i.status === 'laster');
-  if (!cur) return;
-  const mine = s.saveStatus && s.saveStatus.id === cur.id;
-  const other = PEOPLE[otherPerson(s.user)].name;
-  if (cur.done >= cur.photos) {
-    set({
-      queue: s.queue.map(i => (i.id === cur.id ? { ...i, status: 'synk' as const } : i)),
-      memories: s.memories.map(m => (m.id === cur.id ? { ...m, local: false } : m)),
-      lastSync: new Date().toISOString(),
-      saveStatus: mine ? { id: cur.id, phase: 'synk', label: 'Synkronisert', detail: 'Finnes nå på begge telefonene. Skrivestatus er uendret (' + writeLabelFor(cur.id) + '). Sikkerhetskopi er en egen funksjon.' } : s.saveStatus,
-    });
-    later(tick, 200);
-    return;
-  }
-  // Simulated partial failure: the first attempt stops after 4 photos.
-  if (!cur.failed && cur.photos >= 4 && cur.done === 4) {
-    set({
-      queue: s.queue.map(i => (i.id === cur.id ? { ...i, status: 'feil' as const, failed: true } : i)),
-      saveStatus: mine ? { id: cur.id, phase: 'feil', label: 'Kunne ikke lagres – prøv igjen', detail: '4 av ' + cur.photos + ' bilder er lastet opp. Teksten er lagret på denne telefonen. Nytt forsøk fortsetter fra bilde 5 uten å lage duplikater.', canRetry: true } : s.saveStatus,
-    });
-    return;
-  }
-  set({
-    queue: s.queue.map(i => (i.id === cur.id ? { ...i, done: i.done + 1 } : i)),
-    saveStatus: mine ? { id: cur.id, phase: 'laster', label: 'Laster opp ' + (cur.done + 1) + ' av ' + cur.photos + ' bilder', detail: 'Lagret på denne telefonen. Synkroniseres til ' + other + 's telefon.' } : s.saveStatus,
-  });
-  later(tick, 350);
-}
-
-export const retryAll = () => runQueue(true);
-
-export function simulateConflict() {
-  const s = get();
-  updTrip('cannes-2026', t => ({ ...t, conflict: { field: 'intro', by: otherPerson(s.user), at: new Date().toISOString(), mine: t.intro, theirs: t.intro + ' Og med en ring i lommen.' } }));
-  toast('Kollisjon lagt til på «Cannes igjen»');
-}
+/** «Prøv igjen» / «Fortsett synkronisering nå». */
+export const retryAll = () => hooks.syncNow();
 
 export function resolveConflict(tripId: string, text: string) {
   updTrip(tripId, t => ({ ...t, intro: text, conflict: null }));
+  toast('Felles versjon lagret');
+}
+
+/** Both of you rewrote a memory's shared text: keep the chosen (or combined) version. */
+export function resolveMemConflict(memId: string, text: string) {
+  const user = get().user;
+  updMem(memId, m => ({ ...m, text, editedBy: user, conflict: null }));
   toast('Felles versjon lagret');
 }
 
@@ -434,11 +395,6 @@ export async function saveMemory() {
   set({ saveStatus: { id, phase: 'lagrer', label: 'Lagrer på denne telefonen …', detail: '' } });
   const notStored = 'Ikke lagret: ' + n + ' bilder og teksten. Teksten er beholdt i skjemaet nedenfor. Frigjør plass eller fjern bilder, og prøv igjen.';
 
-  await new Promise(r => setTimeout(r, 500));
-  if (get().lowStorage) {
-    set({ saveStatus: { id, phase: 'feil', label: 'Kunne ikke lagres – ikke nok plass på telefonen', detail: notStored, canRetry: true, storage: true } });
-    return;
-  }
   const mem: Memory = {
     id, tripId: f.tripId,
     date: f.precision === 'dag' ? f.date || null : f.precision === 'maned' ? f.month || null : null,
@@ -449,14 +405,14 @@ export async function saveMemory() {
     local: true, createdBy: s.user, startedBy: f.writeStatus === 'arbeid' ? s.user : undefined,
     visit: ['mat', 'overnatting'].includes(f.type) ? { ratings: {} } : undefined,
   };
-  const prev = { memories: s.memories, trips: s.trips, places: s.places, queue: s.queue };
+  const prev = { memories: s.memories, trips: s.trips, places: s.places };
   const online = isOnline();
-  const item: QueueItem = { id, kind: 'Minne', title: mem.title, photos: n, done: 0, status: online ? 'laster' : 'venter' };
+  const cloud = s.mode === 'cloud';
+  const other = PEOPLE[otherPerson(s.user)].name;
   set(st => ({
     memories: [...st.memories, mem],
     trips: st.trips.map(t => (t.id !== f.tripId ? t : { ...withDay(t, mem), story: [...t.story, { type: 'memory' as const, id }], status: t.status === 'planlagt' ? 'uferdig' : t.status })),
     places: mem.placeId ? st.places.map(p => (p.id === mem.placeId && !p.tripIds.includes(mem.tripId) ? { ...p, tripIds: [...p.tripIds, mem.tripId] } : p)) : st.places,
-    queue: [...st.queue, item],
   }));
   // «Lagret» is shown only after IndexedDB has confirmed the write.
   try {
@@ -467,21 +423,40 @@ export async function saveMemory() {
     return;
   }
   set(st => ({
-    saveStatus: { id, phase: 'lokalt', label: 'Lagret på denne telefonen', detail: online ? 'Ikke synkronisert ennå. Finnes bare på denne telefonen.' : 'Venter på nett. Sendes når nettet er tilbake eller når appen åpnes igjen med nett. Finnes bare på denne telefonen – ikke sikkerhetskopiert.' },
+    saveStatus: !cloud
+      ? { id, phase: 'lokalt', label: 'Lagret på denne telefonen', detail: 'Appen er ikke koblet til det felles arkivet, så minnet finnes bare her.' }
+      : online
+        ? { id, phase: 'lokalt', label: 'Lagret på denne telefonen', detail: 'Ikke synkronisert ennå. Sendes til ' + other + 's telefon nå.' }
+        : { id, phase: 'venter', label: 'Venter på nett', detail: 'Lagret på denne telefonen. Sendes når nettet er tilbake, eller neste gang appen åpnes med nett. Ikke sikkerhetskopiert ennå.' },
     newMem: { ...st.newMem, savedId: id },
   }));
-  if (online) later(tick, 500);
-  else later(() => set(st => (st.saveStatus && st.saveStatus.id === id ? { saveStatus: { ...st.saveStatus, phase: 'venter', label: 'Venter på nett' } } : {})), 600);
+  if (cloud && online) hooks.syncNow();
+}
+
+/** Called by the sync engine while a memory's photos upload and when it has reached the server. */
+export function onMemorySyncProgress(id: string, done: number, total: number) {
+  const st = get().saveStatus;
+  if (st?.id !== id) return;
+  set({ saveStatus: { id, phase: 'laster', label: 'Laster opp ' + done + ' av ' + total + ' bilder', detail: 'Lagret på denne telefonen. Synkroniseres til ' + PEOPLE[otherPerson(get().user)].name + 's telefon.' } });
+}
+export function onMemorySynced(id: string) {
+  const s = get(), st = s.saveStatus;
+  if (st?.id !== id) return;
+  const m = s.memories.find(x => x.id === id);
+  const ws = m && m.writeStatus === 'ferdig' ? 'Ferdig' : 'Under arbeid – den andre kan fortsette å skrive';
+  set({ saveStatus: { id, phase: 'synk', label: 'Synkronisert', detail: 'Finnes nå på begge telefonene. Skrivestatus er uendret (' + ws + '). Lag gjerne en sikkerhetskopi under Innstillinger → Eksport.' } });
+}
+export function onSyncFailed() {
+  const st = get().saveStatus;
+  if (!st || !['laster', 'lokalt'].includes(st.phase)) return;
+  set({ saveStatus: { ...st, phase: 'feil', label: 'Kunne ikke lagres på serveren – prøv igjen', detail: 'Minnet er lagret på denne telefonen. Nytt forsøk fortsetter der det stoppet, uten å lage duplikater.', canRetry: true } });
 }
 
 export function retrySave() {
   const st = get().saveStatus;
-  if (st && st.storage) {
-    if (get().lowStorage) { toast('Fortsatt for lite plass. Slå av «Lite plass» i synkpanelet for å teste videre.'); return; }
-    saveMemory();
-    return;
-  }
-  runQueue(true);
+  if (st && st.storage) { saveMemory(); return; }
+  if (st) set({ saveStatus: { ...st, phase: 'laster', label: 'Prøver igjen …', canRetry: false } });
+  hooks.syncNow();
 }
 
 export const resetMemForm = () => set(s => ({ newMem: emptyNewMem(s.newMem.tripId), saveStatus: null }));
@@ -687,43 +662,19 @@ export function impConfirmDo() {
   toast(c.kind === 'dato' ? 'Dato brukt på gruppen' : 'Sted brukt på gruppen');
 }
 
+/** Saves the photos on this phone right away; uploading to the shared archive follows in the background. */
 export function startUpload() {
   const s = get();
   if (!s.imp) return;
   if (s.imp.tripChoice === 'ny' && !s.imp.newTripTitle.trim()) { toast('Gi den nye reisen en tittel'); return; }
-  const online = isOnline();
-  impSet({ step: 4, started: true, done: false, items: s.imp.items.map(i => ({ ...i, status: online ? 'venter' : 'nett' })) });
-  if (online) startUploadLoop(400);
+  impSet({ step: 4, started: true, done: false, items: s.imp.items.map(i => ({ ...i, status: 'ok' })) });
+  finishImport();
+  hooks.syncNow();
 }
 
-// Only one upload loop runs at a time, so «Prøv igjen» during an upload never sends a photo twice.
-let uploading = false;
-function startUploadLoop(delay: number) {
-  if (uploading) return;
-  uploading = true;
-  later(uploadTick, delay);
-}
+export const retryFailed = () => hooks.syncNow();
 
-function uploadTick() {
-  const s = get();
-  if (!s.imp || s.imp.step !== 4) { uploading = false; return; }
-  if (!isOnline(s)) { uploading = false; impItems(i => (i.status === 'venter' || i.status === 'laster' ? { ...i, status: 'nett' } : i)); return; }
-  const items = s.imp.items;
-  const cur = items.find(i => i.status === 'laster') || items.find(i => i.status === 'venter');
-  if (!cur) { uploading = false; finishImport(); return; }
-  const idx = items.indexOf(cur);
-  // Simulated: two uploads fail on the first attempt to show «Prøv igjen».
-  const willFail = !cur.failedOnce && (idx === 4 || idx === 8);
-  impItems(i => (i.id === cur.id ? { ...i, status: willFail ? 'feil' : 'ok', failedOnce: willFail ? true : i.failedOnce } : i));
-  later(uploadTick, 380);
-}
-
-export function retryFailed() {
-  impItems(i => (i.status === 'feil' || i.status === 'nett' ? { ...i, status: 'venter' } : i));
-  startUploadLoop(300);
-}
-
-/** Adds the uploaded photos to the chosen trip, one memory per date group. Safe to call again after a retry. */
+/** Adds the photos to the chosen trip, one memory per date group. Safe to call twice. */
 function finishImport() {
   const s = get(), imp = s.imp;
   if (!imp) return;
@@ -783,36 +734,89 @@ function finishImport() {
 }
 
 // ---------------------------------------------------------------------------
-// Offline download of a trip and export (simulated)
+// Offline download of a trip and export
 // ---------------------------------------------------------------------------
 
+// The sync client imports the store, so it is loaded lazily here to avoid a cycle.
+const syncClient = () => import('../sync/client');
+
+const offlineRuns = new Set<string>();
+const tripPhotos = (tripId: string) => {
+  const seen = new Set<string>();
+  return get().memories.filter(m => m.tripId === tripId).flatMap(m => m.photos).filter(p => !seen.has(p.id) && !!seen.add(p.id));
+};
+
+/**
+ * Makes a trip readable without network. Text is always on the phone; photos are saved
+ * as display copies or originals. Pauses when the network drops; «Fortsett» picks up what's missing.
+ */
 export function startOffline(id: string, scope: OfflineScope) {
-  set(s => ({ offlinePick: null, offlineDl: { ...s.offlineDl, [id]: { status: 'laster', pct: 0, scope } } }));
-  const step = () => {
-    const d = get().offlineDl[id];
-    if (!d || d.status !== 'laster') return;
-    if (!isOnline()) { set(s => ({ offlineDl: { ...s.offlineDl, [id]: { ...d, status: 'pause' } } })); return; }
-    const pct = Math.min(100, d.pct + 9);
-    set(s => ({ offlineDl: { ...s.offlineDl, [id]: { ...d, pct, status: pct >= 100 ? 'klar' : 'laster' } } }));
-    if (pct < 100) later(step, 260);
-  };
-  later(step, 300);
+  const photos = tripPhotos(id).filter(p => !p.blobKey);
+  set(s => ({ offlinePick: null, offlineDl: { ...s.offlineDl, [id]: { status: scope === 'tekst' || !photos.length ? 'klar' : 'laster', pct: scope === 'tekst' || !photos.length ? 100 : 0, scope, total: photos.length, failed: 0 } } }));
+  if (scope !== 'tekst' && photos.length) void runOffline(id, scope === 'alle' ? 'original' : 'display');
 }
-export const resumeOffline = (id: string) => { const d = get().offlineDl[id]; if (d) startOffline(id, d.scope); };
-export const removeOffline = (id: string) => set(s => { const o = { ...s.offlineDl }; delete o[id]; return { offlineDl: o }; });
+
+async function runOffline(id: string, kind: 'display' | 'original') {
+  if (offlineRuns.has(id)) return;
+  offlineRuns.add(id);
+  const upd = (patch: Partial<NonNullable<State['offlineDl'][string]>>) => set(s => (s.offlineDl[id] ? { offlineDl: { ...s.offlineDl, [id]: { ...s.offlineDl[id], ...patch } } } : {}));
+  try {
+    const { photoBlob, offlineKey } = await syncClient();
+    const photos = tripPhotos(id).filter(p => !p.blobKey);
+    let done = 0, failed = 0;
+    for (const p of photos) {
+      if (get().offlineDl[id]?.status !== 'laster') return;      // removed or cancelled
+      if (!isOnline()) { upd({ status: 'pause' }); return; }
+      const key = offlineKey(p.id, kind);
+      if (!(await getBlob(key).catch(() => null))) {
+        try {
+          const b = await photoBlob(p, kind);
+          if (b) await putBlob(key, b); else failed++;
+        } catch (e) {
+          if (!isOnline()) { upd({ status: 'pause' }); return; }
+          if (isQuotaError(e)) { upd({ status: 'pause', failed: failed + 1 }); toast('Ikke nok plass på telefonen til å laste ned flere bilder'); return; }
+          failed++;
+        }
+      }
+      done++;
+      upd({ pct: Math.round((done / photos.length) * 100), failed });
+    }
+    upd({ status: 'klar', pct: 100, failed, total: photos.length });
+    if (failed) toast(failed + (failed === 1 ? ' bilde' : ' bilder') + ' kunne ikke lastes ned');
+  } finally {
+    offlineRuns.delete(id);
+  }
+}
+
+export const resumeOffline = (id: string) => {
+  const d = get().offlineDl[id];
+  if (!d) return;
+  set(s => ({ offlineDl: { ...s.offlineDl, [id]: { ...d, status: 'laster' } } }));
+  void runOffline(id, d.scope === 'alle' ? 'original' : 'display');
+};
+
+/** Removes the downloaded copies (photos you added on this phone stay). */
+export function removeOffline(id: string) {
+  const photos = tripPhotos(id);
+  set(s => { const o = { ...s.offlineDl }; delete o[id]; return { offlineDl: o }; });
+  void syncClient().then(({ offlineKey }) => photos.forEach(p => { deleteBlob(offlineKey(p.id, 'display')).catch(() => {}); deleteBlob(offlineKey(p.id, 'original')).catch(() => {}); }));
+}
 
 export function openExport(id: string | null) {
-  set({ exportSel: id || get().trips.find(t => t.status !== 'planlagt')?.id || 'alt', exportStep: 0, exportPct: 0 });
+  set({ exportSel: id || get().trips.find(t => t.status !== 'planlagt')?.id || 'alt', exportStep: 0, exportPct: 0, exportError: '' });
 }
 
-export function prepareExport() {
-  set({ exportStep: 1, exportPct: 0 });
-  const step = () => {
-    const p = Math.min(100, get().exportPct + 12);
-    set({ exportPct: p, exportStep: p >= 100 ? 2 : 1 });
-    if (p < 100) later(step, 180);
-  };
-  later(step, 200);
+/** Builds the real ZIP (original photos, reisebok.html, data.json) on this phone. */
+export async function prepareExport() {
+  set({ exportStep: 1, exportPct: 0, exportError: '' });
+  try {
+    const [{ buildExport }, { photoBlob }] = await Promise.all([import('../lib/exportZip'), syncClient()]);
+    const s = get();
+    await buildExport(s, s.exportSel, p => photoBlob(p, 'original'), (done, total) => set({ exportPct: total ? Math.round((done / total) * 100) : 100 }));
+    set({ exportStep: 2, exportPct: 100 });
+  } catch (e) {
+    set({ exportStep: 0, exportError: isQuotaError(e) ? 'Ikke nok minne eller plass på telefonen til å lage filen. Prøv én reise om gangen.' : 'Kunne ikke lage eksportfilen. Prøv igjen.' });
+  }
 }
 
 // ---------------------------------------------------------------------------
