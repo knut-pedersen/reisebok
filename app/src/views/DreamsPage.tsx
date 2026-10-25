@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { Img } from '../components/Photo';
 import { paths } from '../lib/nav';
 import { usePageTitle } from '../lib/page';
-import { addDream, backToDream, removeDream, startDocumenting, toUpcoming, useStore, type DreamForm } from '../store/store';
+import { addDream, backToDream, deleteUpcoming, removeDream, startDocumenting, toUpcoming, useStore, type DreamForm } from '../store/store';
 
 export default function DreamsPage() {
   const s = useStore();
   const navigate = useNavigate();
   usePageTitle('Drømmer');
+  const [confirm, setConfirm] = useState<{ kind: 'dream' | 'upcoming'; id: string; title: string } | null>(null);
   const toggleForm = () => useStore.setState(st => ({ showDreamForm: !st.showDreamForm }));
   const field = (k: keyof DreamForm) => (e: React.ChangeEvent<HTMLInputElement>) => useStore.setState(st => ({ dreamForm: { ...st.dreamForm, [k]: e.target.value } }));
   const start = (id: string) => { const tid = startDocumenting(id); if (tid) navigate(paths.trip(tid, { tab: 'dager' })); };
@@ -46,6 +49,7 @@ export default function DreamsPage() {
               <div className="row wrap" style={{ gap: 8, marginTop: 'auto' }}>
                 <button className="btn btn-dark btn-sm" onClick={() => start(u.id)}>Begynn å dokumentere</button>
                 <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: '0 12px' }} onClick={() => backToDream(u.id)}>Tilbake til drøm</button>
+                <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: '0 10px' }} aria-label={'Fjern ' + u.title} onClick={() => setConfirm({ kind: 'upcoming', id: u.id, title: u.title })}>Fjern</button>
               </div>
             </div>
           </article>
@@ -72,13 +76,19 @@ export default function DreamsPage() {
               {d.when && <div className="xs muted">{d.when}</div>}
               <div className="row wrap" style={{ gap: 8, marginTop: 'auto', paddingTop: 8 }}>
                 <button className="btn btn-outline clear btn-sm" style={{ fontSize: 13 }} onClick={() => toUpcoming(d.id)}>Gjør til kommende reise</button>
-                <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: '0 10px' }} aria-label={'Fjern ' + d.title} onClick={() => removeDream(d.id)}>Fjern</button>
+                <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: '0 10px' }} aria-label={'Fjern ' + d.title} onClick={() => setConfirm({ kind: 'dream', id: d.id, title: d.title })}>Fjern</button>
               </div>
             </div>
           </article>
         ))}
       </div>
       <p className="xs muted" style={{ margin: '28px 0 0' }}>Booking, budsjett og dagsplanlegging ligger utenfor første versjon.</p>
+      {confirm && (
+        <ConfirmDialog title={'Fjerne «' + confirm.title + '»?'} confirmLabel="Fjern" onClose={() => setConfirm(null)}
+          onConfirm={() => (confirm.kind === 'dream' ? removeDream(confirm.id) : deleteUpcoming(confirm.id))}>
+          {confirm.kind === 'dream' ? 'Drømmen og notatet om hvorfor dere vil dit slettes.' : 'Den kommende reisen og notatet slettes. Vil dere bare utsette den, bruk «Tilbake til drøm».'} Dette kan ikke angres.
+        </ConfirmDialog>
+      )}
     </>
   );
 }

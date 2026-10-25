@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Avatar, BackLink, Empty } from '../components/bits';
+import ConfirmDialog, { DeleteLink } from '../components/ConfirmDialog';
 import { PhotoButton } from '../components/Photo';
 import { PEOPLE } from '../lib/format';
 import { paths, useBack } from '../lib/nav';
 import { usePageTitle } from '../lib/page';
 import { memCard, ratingRows } from '../store/derive';
-import { addComment, rate, saveMemText, setRatingText, setWrite, useStore } from '../store/store';
+import { addComment, deleteComment, deleteMemory, deletePhoto, rate, saveMemText, setRatingText, setWrite, useStore } from '../store/store';
 import { pill } from './trip/common';
 
 export default function MemoryPage() {
@@ -19,6 +20,7 @@ export default function MemoryPage() {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const [comment, setComment] = useState('');
+  const [confirm, setConfirm] = useState<{ kind: 'mem' } | { kind: 'photo'; id: string } | { kind: 'comment'; i: number } | null>(null);
   if (!raw) return <Empty title="Fant ikke minnet"><p style={{ marginTop: 10 }}><Link to={paths.trips()}>Til alle reiser</Link></p></Empty>;
 
   const m = memCard(s, raw);
@@ -83,7 +85,10 @@ export default function MemoryPage() {
             {raw.photos.map((p, i) => (
               <figure key={p.id}>
                 <PhotoButton photo={p} list={raw.photos} index={i} demoTag />
-                {p.caption && <figcaption className="small muted" style={{ marginTop: 6 }}>{p.caption}</figcaption>}
+                <figcaption className="row small muted" style={{ marginTop: 6, gap: 10, justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span>{p.caption}</span>
+                  <button onClick={() => setConfirm({ kind: 'photo', id: p.id })} aria-label={'Slett bilde' + (p.caption ? ' «' + p.caption + '»' : ' ' + (i + 1))} style={{ border: 0, background: 'transparent', padding: '4px 0', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Slett bilde</button>
+                </figcaption>
               </figure>
             ))}
           </div>
@@ -153,6 +158,7 @@ export default function MemoryPage() {
               <div className="eyebrow" style={{ letterSpacing: '.06em' }}>{PEOPLE[c.by].name}</div>
               <div className="hand" style={{ fontSize: 21, lineHeight: 1.2 }}>{c.text}</div>
             </div>
+            {c.by === s.user && <button onClick={() => setConfirm({ kind: 'comment', i })} aria-label="Slett kommentaren din" style={{ border: 0, background: 'transparent', padding: '8px 0', fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>Slett</button>}
           </div>
         ))}
         <form className="row" style={{ gap: 8, alignItems: 'flex-start' }} onSubmit={e => { e.preventDefault(); addComment(raw.id, comment); setComment(''); }}>
@@ -161,7 +167,26 @@ export default function MemoryPage() {
           <button type="submit" className="btn btn-dark" style={{ padding: '0 14px', fontSize: 14 }}>Legg til</button>
         </form>
         {raw.local && <p className="xs muted row" style={{ margin: '20px 0 0', gap: 6 }}><span className="dot" style={{ width: 8, height: 8, background: 'var(--amber)' }} />Lagt til på denne telefonen. Synkroniseringsstatus finner du øverst.</p>}
+        <div style={{ borderTop: '1px solid var(--line)', marginTop: 32, paddingTop: 8 }}>
+          <DeleteLink label="Slett minnet" onClick={() => setConfirm({ kind: 'mem' })} />
+        </div>
       </div>
+      {confirm?.kind === 'mem' && (
+        <ConfirmDialog title={'Slette «' + raw.title + '»?'} confirmLabel="Slett minnet" onClose={() => setConfirm(null)}
+          onConfirm={() => { const tid = raw.tripId; deleteMemory(raw.id); navigate(paths.trip(tid), { replace: true }); }}>
+          Teksten, {raw.photos.length === 1 ? 'bildet' : 'de ' + raw.photos.length + ' bildene'}, kommentarene og vurderingene slettes fra arkivet. Minnet forsvinner fra historien, dagene og kartet. Dette kan ikke angres.
+        </ConfirmDialog>
+      )}
+      {confirm?.kind === 'photo' && (
+        <ConfirmDialog title="Slette bildet?" confirmLabel="Slett bildet" onClose={() => setConfirm(null)} onConfirm={() => deletePhoto(raw.id, confirm.id)}>
+          Bildet slettes fra minnet, fra reisens bilder og fra bokvisningen. Originalfilen i telefonens eget bildegalleri berøres ikke. Dette kan ikke angres.
+        </ConfirmDialog>
+      )}
+      {confirm?.kind === 'comment' && (
+        <ConfirmDialog title="Slette kommentaren din?" confirmLabel="Slett kommentaren" onClose={() => setConfirm(null)} onConfirm={() => deleteComment(raw.id, confirm.i)}>
+          «{raw.comments[confirm.i]?.text}»
+        </ConfirmDialog>
+      )}
     </>
   );
 }
