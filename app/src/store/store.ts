@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Archive, Dream, ImportItem, Memory, OfflineScope, PersonId, Photo, Place, QueueItem, StoryBlock, Trip, TripPrecision, MemType, WriteStatus } from '../data/types';
 import { demoArchive, importDemo } from '../data/demo';
-import { isQuotaError, loadArchive, putBlob, readPref, requestPersistence, saveArchive, writePref } from '../lib/db';
+import { deleteBlob, isQuotaError, loadArchive, putBlob, readPref, requestPersistence, saveArchive, writePref } from '../lib/db';
 import { fmtDate, otherPerson, PEOPLE, uid } from '../lib/format';
 
 // ---------------------------------------------------------------------------
@@ -533,7 +533,14 @@ export function startDocumenting(id: string): string | null {
   return tid;
 }
 
-export const removeDream = (id: string) => set(s => ({ dreams: s.dreams.filter(x => x.id !== id) }));
+export function removeDream(id: string) {
+  const s = get();
+  const d = s.dreams.find(x => x.id === id);
+  if (!d) return;
+  // Its dotted «drøm» marker leaves the map too.
+  set({ dreams: s.dreams.filter(x => x.id !== id), places: d.dest ? s.places.filter(p => !(p.id === d.dest && p.status === 'drom')) : s.places });
+  toast('«' + d.title + '» er fjernet');
+}
 
 // ---------------------------------------------------------------------------
 // Photo import
@@ -806,4 +813,107 @@ export function prepareExport() {
     if (p < 100) later(step, 180);
   };
   later(step, 200);
+}
+
+// ---------------------------------------------------------------------------
+// Deleting. Everything that points at the deleted item is cleaned up, so no view
+// is left with a dangling reference. Original photo files are removed from the phone.
+// ---------------------------------------------------------------------------
+
+const blobKeys = (photos: Photo[]) => photos.map(p => p.blobKey).filter(Boolean) as string[];
+const dropBlobs = (keys: string[]) => keys.forEach(k => deleteBlob(k).catch(() => {}));
+
+/** Drops `tripId` from places no longer used by that trip, and removes places nothing uses any more. */
+function prunePlaces(places: Place[], memories: Memory[], tripId: string, onlyIds?: Set<string>): Place[] {
+  return places
+    .map(p => {
+      if (onlyIds && !onlyIds.has(p.id)) return p;
+      if (p.kind !== 'place' || !p.tripIds.includes(tripId)) return p;
+      return memories.some(m => m.tripId === tripId && m.placeId === p.id) ? p : { ...p, tripIds: p.tripIds.filter(t => t !== tripId) };
+    })
+    .filter(p => !(p.kind === 'place' && p.tripIds.length === 0 && !memories.some(m => m.placeId === p.id)));
+}
+
+export function deleteMemory(id: string) {
+  const s = get();
+  const m = s.memories.find(x => x.id === id);
+  if (!m) return;
+  const memories = s.memories.filter(x => x.id !== id);
+  const photoIds = new Set(m.photos.map(p => p.id));
+  set({
+    memories,
+    trips: s.trips.map(t => (t.id !== m.tripId ? t : {
+      ...t,
+      story: t.story.filter(b => !(b.type === 'memory' && b.id === id)),
+      days: t.days.map(d => ({ ...d, memoryIds: d.memoryIds.filter(x => x !== id) })),
+      highlights: t.highlights.filter(x => x !== id),
+      cover: t.cover && photoIds.has(t.cover.id) ? null : t.cover,
+    })),
+    places: m.placeId ? prunePlaces(s.places, memories, m.tripId, new Set([m.placeId])) : s.places,
+    queue: s.queue.filter(i => i.id !== id),
+    saveStatus: s.saveStatus?.id === id ? null : s.saveStatus,
+    lightbox: null,
+  });
+  dropBlobs(blobKeys(m.photos));
+  toast('«' + m.title + '» er slettet');
+}
+
+export function deleteTrip(id: string) {
+  const s = get();
+  const t = s.trips.find(x => x.id === id);
+  if (!t) return;
+  const gone = s.memories.filter(m => m.tripId === id);
+  const memories = s.memories.filter(m => m.tripId !== id);
+  const trips = s.trips.filter(x => x.id !== id);
+  const offlineDl = { ...s.offlineDl };
+  delete offlineDl[id];
+  set({
+    trips,
+    memories,
+    places: prunePlaces(s.places, memories, id)
+      .map(p => (p.kind === 'destination' ? { ...p, tripIds: p.tripIds.filter(x => x !== id) } : p))
+      // A visited destination with no trips left disappears from the map; dreams and planned ones stay.
+      .filter(p => !(p.kind === 'destination' && p.status === 'besokt' && p.tripIds.length === 0)),
+    queue: s.queue.filter(i => !gone.some(m => m.id === i.id)),
+    offlineDl,
+    mapTrip: s.mapTrip === id ? 'alle' : s.mapTrip,
+    mapSel: null,
+    exportSel: s.exportSel === id ? 'alt' : s.exportSel,
+    newMem: s.newMem.tripId === id ? { ...s.newMem, tripId: trips[0]?.id ?? '' } : s.newMem,
+    lightbox: null,
+  });
+  dropBlobs(gone.flatMap(m => blobKeys(m.photos)));
+  toast('«' + t.title + '» er slettet');
+}
+
+export function deletePhoto(memId: string, photoId: string) {
+  const s = get();
+  const m = s.memories.find(x => x.id === memId);
+  const p = m?.photos.find(x => x.id === photoId);
+  if (!m || !p) return;
+  set({
+    memories: s.memories.map(x => (x.id === memId ? { ...x, photos: x.photos.filter(y => y.id !== photoId) } : x)),
+    trips: s.trips.map(t => (t.cover?.id === photoId ? { ...t, cover: null } : t)),
+    lightbox: null,
+  });
+  dropBlobs(blobKeys([p]));
+  toast('Bildet er slettet');
+}
+
+/** Each of you can delete only your own comments. */
+export function deleteComment(memId: string, index: number) {
+  const s = get();
+  updMem(memId, m => (m.comments[index]?.by === s.user ? { ...m, comments: m.comments.filter((_, i) => i !== index) } : m));
+}
+
+export function deleteUpcoming(id: string) {
+  const s = get();
+  const u = s.upcoming.find(x => x.id === id);
+  if (!u) return;
+  set({
+    upcoming: s.upcoming.filter(x => x.id !== id),
+    // Its planned marker goes too, unless a trip book was already started for it.
+    places: u.dest ? s.places.filter(p => !(p.id === u.dest && p.status === 'planlagt' && !s.trips.some(t => t.dest === u.dest))) : s.places,
+  });
+  toast('«' + u.title + '» er fjernet');
 }

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { Avatar, BackLink, Empty } from '../components/bits';
+import ConfirmDialog, { DeleteLink } from '../components/ConfirmDialog';
 import { Img } from '../components/Photo';
 import { fmtTime, PEOPLE } from '../lib/format';
 import { paths, useBack, type TripTab } from '../lib/nav';
 import { scrollToMem, usePageTitle } from '../lib/page';
 import { tripMeta } from '../store/derive';
-import { openExport, resolveConflict, startImport, startMemory, useStore } from '../store/store';
+import { deleteTrip, openExport, resolveConflict, startImport, startMemory, useStore } from '../store/store';
 import { DaysTab, PhotosTab } from './trip/DaysPhotosTabs';
 import OfflineBox from './trip/OfflineBox';
 import PlacesTab from './trip/PlacesTab';
@@ -43,6 +44,7 @@ export default function TripPage() {
 
   const [conflictOpen, setConflictOpen] = useState(false);
   const [mergeText, setMergeText] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!raw) {
     return <Empty title="Fant ikke reisen"><p style={{ marginTop: 10 }}><Link to={paths.trips()}>Til alle reiser</Link></p></Empty>;
@@ -149,15 +151,23 @@ export default function TripPage() {
             </div>
             <OfflineBox tripId={trip.id} />
             <p className="xs muted" style={{ padding: '0 4px' }}>Illustrerende demoinnhold. Bildene er nøytrale illustrasjonsfoto, ikke private bilder.</p>
+            <div style={{ padding: '0 4px' }}><DeleteLink label="Slett reisen" onClick={() => setConfirmDelete(true)} /></div>
           </aside>
         )}
         {isM && (
           <div className="stack" style={{ gap: 12 }}>
             <OfflineBox tripId={trip.id} />
             <p className="xs muted">Illustrerende demoinnhold. Bildene er nøytrale illustrasjonsfoto, ikke private bilder.</p>
+            <DeleteLink label="Slett reisen" onClick={() => setConfirmDelete(true)} />
           </div>
         )}
       </div>
+      {confirmDelete && (
+        <ConfirmDialog title={'Slette «' + trip.title + '»?'} confirmLabel="Slett reisen" onClose={() => setConfirmDelete(false)}
+          onConfirm={() => { deleteTrip(trip.id); navigate(paths.trips(), { replace: true }); }}>
+          {trip.memCount === 0 ? 'Reisen har ingen minner ennå.' : 'Alle ' + trip.memCount + (trip.memCount === 1 ? ' minne' : ' minner') + ' og ' + trip.photoCount + (trip.photoCount === 1 ? ' bilde' : ' bilder') + ' på reisen slettes, sammen med historien, dagene, kommentarene og vurderingene.'} Steder som bare hører til denne reisen, forsvinner fra kartet. Dette kan ikke angres.
+        </ConfirmDialog>
+      )}
     </>
   );
 }
