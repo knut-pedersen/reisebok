@@ -8,7 +8,9 @@ import type { MapData } from '../store/derive';
 const TILE_URL = import.meta.env.VITE_MAP_TILE_URL || 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const TILE_ATTR = import.meta.env.VITE_MAP_TILE_ATTRIBUTION || '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragsytere © <a href="https://carto.com/attributions">CARTO</a>';
 const TILE_SUBDOMAINS = import.meta.env.VITE_MAP_TILE_SUBDOMAINS || 'abcd';
-const TILE_MAX_ZOOM = Number(import.meta.env.VITE_MAP_TILE_MAX_ZOOM || 19);
+// The provider serves tiles up to TILE_MAX_ZOOM; closer zoom levels enlarge those tiles instead of showing grey.
+const TILE_MAX_ZOOM = Number(import.meta.env.VITE_MAP_TILE_MAX_ZOOM || 18);
+const MAP_MAX_ZOOM = TILE_MAX_ZOOM + 2;
 
 const GLYPH: Record<string, string> = { mat: 'M', overnatting: 'O', kultur: 'K', natur: 'N', severdighet: 'S', hverdag: 'H' };
 const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -76,7 +78,7 @@ export default function MapView({ data, filter, selectedId, fit, fitKey, focus, 
 
   useEffect(() => {
     if (!el.current) return;
-    const m = L.map(el.current, { zoomControl: false, worldCopyJump: true, zoomAnimation: !reduced, fadeAnimation: !reduced, markerZoomAnimation: !reduced }).setView([30, 10], 2);
+    const m = L.map(el.current, { zoomControl: false, worldCopyJump: true, maxZoom: MAP_MAX_ZOOM, zoomAnimation: !reduced, fadeAnimation: !reduced, markerZoomAnimation: !reduced }).setView([30, 10], 2);
     map.current = m;
     L.control.zoom({ position: 'bottomright', zoomInTitle: 'Zoom inn', zoomOutTitle: 'Zoom ut' }).addTo(m);
     m.attributionControl.setPrefix(false);
@@ -93,7 +95,7 @@ export default function MapView({ data, filter, selectedId, fit, fitKey, focus, 
       })
       .catch(() => {});
     m.attributionControl.addAttribution('Kartdata: Natural Earth');
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, subdomains: TILE_SUBDOMAINS, maxZoom: TILE_MAX_ZOOM }).addTo(m);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, subdomains: TILE_SUBDOMAINS, maxNativeZoom: TILE_MAX_ZOOM, maxZoom: MAP_MAX_ZOOM }).addTo(m);
     layer.current = L.layerGroup().addTo(m);
     m.on('zoomend', () => { baseVis(); render(); props.current.onZoom?.(m.getZoom()); });
     m.on('click', () => props.current.onDeselect?.());
