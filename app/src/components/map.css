@@ -1,0 +1,26 @@
+.rb-map { position: absolute; inset: 0; background: #D9DFD8; font-family: var(--sans); }
+.rb-map .leaflet-tile-pane { filter: grayscale(.65) sepia(.28) contrast(.92) brightness(1.04); }
+.rb-map.leaflet-container { background: #D9DFD8; font-family: inherit; }
+.rb-map .leaflet-control-attribution { font-size: 10px; background: rgba(255, 252, 246, .88); color: var(--ink); padding: 2px 6px; }
+.rb-map .leaflet-control-attribution a { color: var(--olive-deep); }
+.rb-map .leaflet-bar { border: 1px solid rgba(46, 53, 47, .2); box-shadow: 0 1px 3px rgba(46, 53, 47, .12); }
+.rb-map .leaflet-bar a { background: var(--paper); color: var(--ink); width: 40px; height: 40px; line-height: 40px; font-size: 18px; }
+.rb-map .leaflet-bar a:hover { background: var(--cream); }
+.rb-map .leaflet-div-icon { background: none; border: 0; }
+.rb-dest { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 5px; border-radius: 999px; background: var(--olive); color: var(--paper); font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(46, 53, 47, .25); border: 2px solid var(--paper); transform: translate(-18px, -50%); cursor: pointer; line-height: 1; }
+.rb-dest img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; background: #B9A890; }
+.rb-dest small { font-weight: 500; opacity: .85; margin-left: 2px; }
+.rb-dest .noimg { width: 24px; height: 24px; border-radius: 50%; background: rgba(0, 0, 0, .12); display: inline-block; }
+.rb-dest.planlagt { background: var(--paper); color: var(--ink); border: 2px dashed var(--terracotta); }
+.rb-dest.drom { background: var(--cream); color: var(--olive-deep); border: 2px dotted #8F9A86; box-shadow: none; }
+.rb-dest.sel { box-shadow: 0 0 0 3px rgba(169, 85, 60, .45), 0 2px 6px rgba(46, 53, 47, .25); }
+.rb-place { position: relative; width: 34px; height: 34px; border-radius: 50%; background: var(--olive); color: var(--paper); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; border: 2px solid var(--paper); box-shadow: 0 2px 5px rgba(46, 53, 47, .3); transform: translate(-50%, -50%); cursor: pointer; }
+.rb-place.overnatting { border-radius: 8px; }
+.rb-place.kultur { border-radius: 50% 50% 8px 8px; }
+.rb-place.natur { border-radius: 8px 50% 8px 50%; }
+.rb-place.severdighet { border-radius: 50% 8px 50% 8px; }
+.rb-place.dim { opacity: .4; }
+.rb-place.hl { background: var(--terracotta); }
+.rb-place.sel { width: 44px; height: 44px; font-size: 16px; box-shadow: 0 0 0 4px rgba(169, 85, 60, .35), 0 3px 8px rgba(46, 53, 47, .35); z-index: 1000; }
+.rb-place .lbl { position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%); background: rgba(255, 252, 246, .95); color: var(--ink); font-size: 12px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; border: 1px solid rgba(46, 53, 47, .15); pointer-events: none; }
+.rb-place .ph-mini { position: absolute; right: -8px; bottom: -8px; width: 18px; height: 18px; border-radius: 50%; object-fit: cover; border: 2px solid var(--paper); background: #B9A890; }
