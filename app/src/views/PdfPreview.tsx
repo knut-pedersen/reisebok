@@ -4,7 +4,7 @@ import { Img } from '../components/Photo';
 import type { Photo } from '../data/types';
 import { paths } from '../lib/nav';
 import type { BookPage, TripView } from '../store/derive';
-import { toast, useStore } from '../store/store';
+import { useStore } from '../store/store';
 
 /** Simulated preview of the PDF made from the book view (same selection and order). */
 export default function PdfPreview({ trip, pages, onClose }: { trip: TripView; pages: BookPage[]; onClose: () => void }) {

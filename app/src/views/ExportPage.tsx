@@ -59,7 +59,7 @@ export default function ExportPage() {
         </div>
         {s.exportFormat === 'pdf' ? (
           <>
-            <p className="muted" style={{ fontSize: 14 }}>En lesbar PDF av bokvisningen: omslag, innledning, utvalgte minner og fremhevede bilder i visningskvalitet. Den er ikke et komplett arkiv – originalbildene ligger i ZIP-eksporten.</p>
+            <p className="muted" style={{ fontSize: 14 }}>En lesbar PDF av bokvisningen: omslag, innledning, utvalgte minner og fremhevede bilder i visningskvalitet. Den er ikke et komplett arkiv – originalbildene ligger i ZIP-eksporten. Selve PDF-nedlastingen kommer senere; fram til da kan reisebok.html i ZIP-filen skrives ut som PDF fra nettleseren.</p>
             {optionList}
             <button className="btn btn-primary btn-lg" style={{ alignSelf: 'flex-start' }} onClick={previewPdf}>Forhåndsvis PDF</button>
           </>
