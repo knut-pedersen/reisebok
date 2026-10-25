@@ -39,7 +39,12 @@ export async function initCloud() {
   const { data } = await supabase.auth.getSession();
   await onSession(data.session);
   // Catch up whenever the app comes back to the foreground, and now and then while open.
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') engine?.syncNow(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    // Signed in via the e-mail link in the browser? The installed app shares that session: pick it up.
+    if (useStore.getState().authState === 'signedOut') void supabase!.auth.getSession().then(({ data }) => onSession(data.session));
+    engine?.syncNow();
+  });
   setInterval(() => { if (document.visibilityState === 'visible' && isOnline()) engine?.syncNow(); }, 60_000);
 }
 

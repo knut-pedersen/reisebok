@@ -39,15 +39,9 @@ Dette gjøres én gang. Det tar 15–20 minutter. Etterpå logger dere inn med e
 2. **Authentication** → **URL Configuration**:
    - Site URL: `https://knut-pedersen.github.io/reisebok/`
    - Redirect URLs: legg til `https://knut-pedersen.github.io/reisebok/` og `http://localhost:5173/`
-3. **Authentication** → **Emails** → **Magic Link**. Bytt ut innholdet med dette, slik at e-posten viser koden appen ber om:
+3. E-postmalen trenger du ikke endre. Standard-e-posten har en «Sign in»-lenke som appen tar imot. (Vil du heller ha en kode å skrive inn, eller norsk tekst i e-posten, krever Supabase at du setter opp egen e-postserver (SMTP), f.eks. Resend eller Brevo. Legg da `{{ .Token }}` inn i malen **Magic link or OTP**.)
 
-   ```html
-   <h2>Logg inn i Vår reisebok</h2>
-   <p>Koden din er: <strong style="font-size:24px;letter-spacing:4px">{{ .Token }}</strong></p>
-   <p>Eller trykk her for å logge inn: <a href="{{ .ConfirmationURL }}">Logg inn</a></p>
-   ```
-
-Supabase sin innebygde e-posttjeneste sender bare et fåtall e-poster i timen. Det holder for to personer.
+Supabase sin innebygde e-posttjeneste sender bare noen få e-poster i timen. Det holder for to personer, men ikke prøv mange ganger på rad. Innloggingen varer til dere logger ut.
 
 ## 5. Koble appen til prosjektet
 
@@ -60,7 +54,7 @@ Supabase sin innebygde e-posttjeneste sender bare et fåtall e-poster i timen. D
 
 ## 6. Første innlogging
 
-1. Åpne appen, skriv e-postadressen din og trykk «Send kode». Skriv inn koden fra e-posten.
+1. Åpne appen, skriv e-postadressen din og trykk «Send innloggingslenke». Åpne e-posten på samme telefon og trykk «Sign in». Åpner lenken seg i Chrome, går du tilbake til appen – den er da logget inn.
 2. Den første som logger inn, laster opp det som ligger på telefonen (demoreisene og det du har lagt til) som starten på det felles arkivet.
 3. Når den andre logger inn, henter telefonen det felles arkivet. Det du har lagt til på den telefonen før innlogging, blir også med.
 
