@@ -28,18 +28,22 @@ Every push to `main` builds and publishes the app to GitHub Pages (`.github/work
 
 The tiles are configurable through `.env` (see `.env.example`). The default is CARTO Voyager, which uses OpenStreetMap data and shows the attribution. CARTO's free tier has usage limits, so confirm the terms or switch provider before wider use. The design's Esri street map also works through the same variables, but it needs an Esri API key or agreement.
 
-## What is real and what is simulated
+## Shared archive, login and sync
 
-Real:
-- Everything you write is stored on this phone in IndexedDB: trips, memories, ratings, comments, dreams, story order and photo flags. «Lagret på denne telefonen» appears only after IndexedDB confirms the write. A full disk (`QuotaExceededError`) shows the «ikke nok plass» state and keeps the text in the form.
-- Photos you pick from the phone keep their original file in IndexedDB. Date and position are read from EXIF. Positions near a known place become a suggestion you confirm, and the same capture time and position is flagged as a possible duplicate. Missing metadata never blocks an import.
-- Real online and offline status (`navigator.onLine`), the offline app shell, and the map's list fallback when offline.
+With `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set, the app uses a shared archive in Supabase. Setup steps are in [`../docs/supabase-oppsett.md`](../docs/supabase-oppsett.md) and the schema in [`../supabase/migrations/0001_init.sql`](../supabase/migrations/0001_init.sql). Without them the app runs on this phone only, which suits development.
 
-Simulated, as in the prototype (no backend yet):
-- Login and switching user: there are no passwords, and the user is stored per device.
-- Sync to the other phone, upload progress and the failure / «Prøv igjen» states. The sync panel can still simulate no network, low storage and an edit conflict.
-- Downloading a trip for offline use, the PDF and the ZIP export.
-- Demo content and photos (picsum.photos) are illustrative. «Tilbakestill demoinnhold» in Innstillinger resets the archive.
+- **Login:** a one-time code by e-mail, for the two addresses in `members` only. Database rules (RLS) limit every read and write to members.
+- **Local-first:** everything is written to IndexedDB first. «Lagret på denne telefonen» appears only after the write is confirmed. The app works offline and keeps a list of unsent changes that survives restarts.
+- **Sync** (`src/sync/engine.ts`):
+  - Each trip, memory, place, dream and upcoming trip is one row with a version number.
+  - The phone pulls changes since its last position, uploads photo files (original plus a 1600 px display copy) to a private bucket, then pushes its changed entities with conflict detection.
+  - Changes on both phones are merged field by field: comments, ratings, photos, the story and days are combined.
+  - When both of you rewrote the same shared text, the other person's version is kept and yours is shown next to it to compare.
+  - Live updates come via Supabase Realtime. The phone also syncs on reconnect and when it comes back to the foreground. Uploads continue only while the app is open.
+- **Backup:** sync is not a backup. Export → «Komplett arkiv (ZIP)» downloads `data.json`, a readable `reisebok.html` and the original photos.
+- **Not built yet:** PDF download.
+
+Tests: `npm test` runs the sync engine against an in-memory server with two simulated phones.
 
 ## Structure
 

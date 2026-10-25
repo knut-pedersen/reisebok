@@ -7,8 +7,9 @@ import { PEOPLE } from '../lib/format';
 import { paths, useBack } from '../lib/nav';
 import { usePageTitle } from '../lib/page';
 import { memCard, ratingRows } from '../store/derive';
-import { addComment, deleteComment, deleteMemory, deletePhoto, rate, saveMemText, setRatingText, setWrite, useStore } from '../store/store';
+import { addComment, deleteComment, resolveMemConflict, deleteMemory, deletePhoto, rate, saveMemText, setRatingText, setWrite, useStore } from '../store/store';
 import { pill } from './trip/common';
+import ConflictPanel from './trip/ConflictPanel';
 
 export default function MemoryPage() {
   const { memId = '' } = useParams();
@@ -94,6 +95,7 @@ export default function MemoryPage() {
           </div>
         )}
 
+        {raw.conflict && <div style={{ margin: '-6px 0 18px' }}><ConflictPanel conflict={raw.conflict} me={me} what="teksten" onResolve={text => resolveMemConflict(raw.id, text)} /></div>}
         <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
           <div className="eyebrow">Felles tekst · skrevet av {editedBy}</div>
           {!editing && <button onClick={startEdit} style={{ border: 0, background: 'transparent', padding: 0, fontSize: 13, color: 'var(--terracotta)', fontWeight: 500 }}>Rediger</button>}

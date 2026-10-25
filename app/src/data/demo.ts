@@ -104,8 +104,7 @@ export const memories: Memory[] = ([
     comments: [{ by: 'anna', text: 'Jag har nynnat den för Shazam fyrtio gånger.' }] },
 ] as MemorySeed[]).map(m => ({ writeStatus: 'ferdig', precision: 'dag', ...m }));
 
-// Demo: et ferdig minne som fortsatt venter på opplasting fra Annas telefon.
-export const queue: QueueItem[] = [{ id: 'n5', kind: 'Minne', title: 'Siste kveld i Le Suquet', photos: 9, done: 0, status: 'venter' }];
+export const queue: QueueItem[] = [];
 
 export const trips: Trip[] = [
   { id: 'cannes-2025', title: 'Der det begynte', destinations: ['Cannes'], dest: 'cannes', start: '2025-07-10', end: '2025-07-17', precision: 'dag', status: 'ferdig', cover: ph.c1,
@@ -155,8 +154,7 @@ export const trips: Trip[] = [
       { date: '2026-07-09', title: '', memoryIds: [] },
       { date: '2026-07-10', title: 'Siste kveld', memoryIds: ['n5'] },
       { date: '2026-07-11', title: '', memoryIds: [] },
-    ],
-    conflict: { field: 'intro', by: 'anna', at: '2026-10-24T22:03', mine: 'Tilbake til den samme muren, ett år senere. Denne gangen sammen fra første dag.', theirs: 'Tilbake til samma mur, ett år senare. Den här gången tillsammans från första dagen – och med en ring i fickan.' } },
+    ] },
 ];
 
 export const upcoming: Dream[] = [

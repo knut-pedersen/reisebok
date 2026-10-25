@@ -38,7 +38,7 @@ export type TripView = ReturnType<typeof tripMeta>;
 
 export function syncInfo(s: State, m: Memory) {
   const q = s.queue.find(i => i.id === m.id);
-  const st = q ? q.status : m.local ? 'lokalt' : 'synk';
+  const st = s.mode === 'local' ? 'lokalt' : q ? q.status : 'synk';
   const on = isOnline(s);
   const label = {
     lokalt: 'Lagret på denne telefonen',
@@ -48,7 +48,8 @@ export function syncInfo(s: State, m: Memory) {
     synk: 'Synkronisert',
   }[st];
   const color = { lokalt: colors.amber, venter: colors.amber, laster: colors.terracotta, feil: colors.terracotta, synk: colors.oliveDeep }[st];
-  return { syncStatus: st, syncLabel: label, syncColor: color, syncDetail: st === 'synk' ? 'Tilgjengelig for begge' : 'Finnes bare på denne telefonen ennå' };
+  const detail = st === 'synk' ? 'Tilgjengelig for begge' : s.mode === 'local' ? 'Appen er ikke koblet til det felles arkivet' : 'Finnes bare på denne telefonen ennå';
+  return { syncStatus: st, syncLabel: label, syncColor: color, syncDetail: detail };
 }
 
 export function memCard(s: State, m: Memory) {
@@ -87,13 +88,15 @@ export function ratingRows(s: State, m: Memory) {
 }
 export type RatingRow = ReturnType<typeof ratingRows>[number];
 
+/** The one-line sync status in the menu and top bar. */
 export function queueStatus(s: State) {
-  const q = s.queue;
-  const up = q.find(i => i.status === 'laster');
-  if (up) return { label: 'Laster opp ' + up.done + ' av ' + up.photos + ' bilder', tone: colors.terracotta };
-  if (q.some(i => i.status === 'feil')) return { label: 'Kunne ikke lagres – prøv igjen', tone: colors.terracotta };
-  const w = q.filter(i => i.status === 'venter');
-  if (w.length) return { label: isOnline(s) ? 'Venter · ' + w.length + ' i kø' : 'Venter på nett · ' + w.length + ' i kø', tone: colors.amber };
+  if (s.mode === 'local') return { label: 'Bare på denne telefonen', tone: colors.amber };
+  const y = s.sync;
+  const n = y.pending;
+  if (!isOnline(s)) return n ? { label: 'Venter på nett · ' + n + ' endring' + (n === 1 ? '' : 'er'), tone: colors.amber } : { label: 'Uten nett', tone: colors.amber };
+  if (y.phase === 'error') return { label: 'Kunne ikke synkronisere – prøv igjen', tone: colors.terracotta };
+  if (y.phase === 'syncing' && y.photosTotal) return { label: 'Laster opp ' + y.photosDone + ' av ' + y.photosTotal + ' bilder', tone: colors.terracotta };
+  if (y.phase === 'syncing' || n) return { label: 'Synkroniserer …', tone: colors.amber };
   return { label: 'Synkronisert', tone: colors.oliveDeep };
 }
 
