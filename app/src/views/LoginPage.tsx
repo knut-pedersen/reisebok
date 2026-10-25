@@ -7,7 +7,7 @@ import { login, useStore } from '../store/store';
 function explain(e: unknown, step: 'send' | 'verify') {
   const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
   const status = (e as { status?: number })?.status;
-  if (status === 429 || msg.includes('rate limit') || msg.includes('only request this after') || msg.includes('security purposes')) return 'Det er sendt mange koder på kort tid. Vent et minutt og prøv igjen.';
+  if (status === 429 || msg.includes('rate limit') || msg.includes('only request this after') || msg.includes('security purposes')) return 'Det er sendt mange e-poster på kort tid. Vent litt og prøv igjen – Supabase sender bare noen få i timen.';
   if (msg.includes('fetch') || msg.includes('network') || !navigator.onLine) return 'Fikk ikke kontakt med serveren. Sjekk nettet og prøv igjen.';
   if (step === 'send' && (msg.includes('signups not allowed') || msg.includes('not found') || msg.includes('not allowed') || status === 400 || status === 422)) return 'Denne adressen har ikke tilgang til reiseboken.';
   if (step === 'verify' && (msg.includes('expired') || msg.includes('invalid') || status === 403 || status === 401)) return 'Koden stemmer ikke eller er utløpt. Sjekk at du bruker den nyeste koden, eller be om en ny.';
@@ -72,7 +72,7 @@ function CodeLogin() {
     try {
       await sendCode(a);
       setSent(true);
-      if (again) setInfo('En ny kode er sendt.');
+      if (again) setInfo('En ny lenke er sendt.');
     } catch (e) {
       setError(explain(e, 'send'));
     } finally {
@@ -102,20 +102,20 @@ function CodeLogin() {
               E-postadressen din
               <input className="input" type="email" inputMode="email" autoComplete="email" autoFocus value={addr} onChange={e => setAddr(e.target.value)} placeholder="navn@eksempel.no" style={field} disabled={busy} />
             </label>
-            <button type="submit" className="btn btn-dark" style={{ minHeight: 52, fontSize: 16 }} disabled={busy}>{busy ? 'Sender …' : 'Send kode'}</button>
-            <p className="xs muted">Du får en engangskode på e-post. Ingen passord å huske.</p>
+            <button type="submit" className="btn btn-dark" style={{ minHeight: 52, fontSize: 16 }} disabled={busy}>{busy ? 'Sender …' : 'Send innloggingslenke'}</button>
+            <p className="xs muted">Du får en innloggingslenke på e-post. Ingen passord å huske.</p>
           </>
         ) : (
           <>
-            <p style={{ fontSize: 15 }}>Vi har sendt en kode til <strong>{addr.trim()}</strong>.</p>
+            <p style={{ fontSize: 15 }}>Vi har sendt en innloggingslenke til <strong>{addr.trim()}</strong>.</p>
+            <p className="small muted">Åpne e-posten på denne telefonen og trykk på lenken. Åpner den seg i nettleseren, kan du gå tilbake til appen etterpå – du er da logget inn.</p>
             <label className="field" style={{ textAlign: 'left' }}>
-              Skriv inn koden fra e-posten
+              Har e-posten en kode? Skriv den inn her
               <input className="input mono" inputMode="numeric" autoComplete="one-time-code" autoFocus value={code} onChange={e => setCode(e.target.value)} placeholder="123456" style={{ ...field, letterSpacing: '.3em' }} disabled={busy} />
             </label>
-            <button type="submit" className="btn btn-dark" style={{ minHeight: 52, fontSize: 16 }} disabled={busy}>{busy ? 'Logger inn …' : 'Logg inn'}</button>
-            <p className="xs muted">Du kan også trykke på lenken i e-posten. Åpner den seg i nettleseren, kan du gå tilbake hit etterpå.</p>
+            <button type="submit" className="btn btn-dark" style={{ minHeight: 52, fontSize: 16 }} disabled={busy}>{busy ? 'Logger inn …' : 'Logg inn med koden'}</button>
             <div className="row wrap" style={{ gap: 8, justifyContent: 'center' }}>
-              <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void send(true)}>Send ny kode</button>
+              <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void send(true)}>Send ny lenke</button>
               <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { setSent(false); setCode(''); setError(''); setInfo(''); }}>Bruk en annen adresse</button>
             </div>
           </>
