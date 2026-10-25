@@ -35,37 +35,42 @@ export default function AboutPage() {
             <li>Les «Historien», åpne en dag, et minne og et bilde i full visning. Under «Steder» velger dere et minne i tidslinjen og ser markøren, eller trykker på Le Suquet og velger mellom flere minner. Bytt til «Historien»: samme minne er markert.</li>
             <li>Åpne «Bistro ved havnen» og se Knuts og Annas separate vurderinger fra to besøk.</li>
             <li>Legg til → Ny reise → Legg til minne med sted og dato → «Se i historien», «Se dagen» og «Se på kartet» viser det samme minnet.</li>
-            <li>Legg til → Bilder: demobilder eller egne bilder, forslag, «Bruk dato fra bildet» med bekreftelse, manglende dato og sted, duplikat, fremheving og bok-utvalg, deretter fremdrift med feil og «Prøv igjen».</li>
-            <li>Synkpanelet → «Simuler uten nett» → lagre et minne som «Under arbeid» → nett tilbake → feil → «Prøv igjen» → Synkronisert. Minnet står fortsatt som «Under arbeid». «Siste kveld i Le Suquet» er ferdig, men venter fortsatt på opplasting.</li>
+            <li>Legg til → Bilder: demobilder eller egne bilder, forslag, «Bruk dato fra bildet» med bekreftelse, manglende dato og sted, duplikat, fremheving og bok-utvalg, deretter opplasting med fremdrift.</li>
+            <li>Skru av nettet på telefonen → lagre et minne som «Under arbeid» → det står «Venter på nett» → skru på nettet → minnet og bildene sendes → Synkronisert, og minnet dukker opp på den andre telefonen. Skrivestatus er fortsatt «Under arbeid».</li>
             <li>Drømmer → nytt reisemål → «Gjør til kommende reise» → «Begynn å dokumentere».</li>
             <li>Reisesiden → «Bilder»: fremhev og ta ut bilder → «Se som reisebok» → «Bildeutvalg» og «Kommentarer» endrer boken med en gang.</li>
             <li>Bokvisningen → «Last ned som PDF» (forhåndsvisning) → «Komplett arkiv (ZIP)». Det samme finnes under Innstillinger → Eksport.</li>
+            <li>Rediger teksten i samme minne på begge telefoner mens den ene er uten nett: begge versjonene beholdes, og dere velger eller skriver en felles versjon.</li>
           </ol>
           <p className="small muted" style={{ margin: '8px 0 0' }}>Tomtilstander: søk uten treff, filter uten reiser, dag uten innhold, minne uten tekst («Dagstur til Antibes»), ny reise uten historie og reisen som ikke er skrevet ferdig («Cannes igjen»).</p>
         </section>
         <section>
-          <h2 style={h2}>Hva som er ekte, og hva som er simulert</h2>
+          <h2 style={h2}>Hva som er ekte, og hva som gjenstår</h2>
           <ul style={ul}>
-            <li><strong>Ekte:</strong> alt dere skriver og legger til, lagres på denne telefonen (IndexedDB), også uten nett. Egne bilder lagres som originalfiler på telefonen. «Lagret» vises først når lagringen er bekreftet, og full lagringsplass gir en tydelig feilmelding.</li>
-            <li><strong>Ekte:</strong> dato og posisjon leses fra egne bildefiler (EXIF) når informasjonen finnes. Posisjonen gir bare et forslag til sted – dere bekrefter selv.</li>
+            <li><strong>Lagring:</strong> alt dere skriver og legger til, lagres først på telefonen (IndexedDB), også uten nett. «Lagret» vises først når lagringen er bekreftet, og full lagringsplass gir en tydelig feilmelding.</li>
+            <li><strong>Felles arkiv:</strong> arkivet ligger i Supabase (EU). Bare Knut og Anna kan logge inn, med engangskode på e-post. Tilgangen styres i databasen, ikke bare i appen.</li>
+            <li><strong>Synkronisering:</strong> endringer sendes til den andre telefonen så snart det er nett. Det som lages uten nett, venter i en kø på telefonen og sendes når nettet er tilbake eller appen åpnes igjen. Store opplastinger fortsetter bare mens appen er åpen.</li>
+            <li><strong>Samtidige endringer:</strong> slås sammen felt for felt. Kommentarer, vurderinger og bilder fra begge beholdes. Har begge skrevet om den samme felles teksten, beholdes begge versjonene til dere velger.</li>
+            <li><strong>Bilder:</strong> originalfilen lastes opp uendret, sammen med en mindre visningskopi for rask visning.</li>
+            <li><strong>Bildeinformasjon:</strong> dato og posisjon leses fra egne bildefiler (EXIF) når informasjonen finnes. Posisjonen gir bare et forslag til sted – dere bekrefter selv.</li>
             <li><strong>Kart:</strong> kartfliser fra CARTO (bygger på OpenStreetMap), med Natural Earth som enkel reserve. Leverandøren kan byttes i oppsettet.</li>
-            <li><strong>Simulert:</strong> innlogging, brukerbytte, skylagring og synkronisering mellom telefoner.</li>
-            <li><strong>Simulert:</strong> opplasting, feil og nytt forsøk, offline-nedlasting, PDF-forhåndsvisning, PDF-eksport og ZIP.</li>
-            <li><strong>Simulert:</strong> kollisjon mellom samtidige endringer (kan utløses fra synkpanelet).</li>
-            <li>Demoinnholdet er illustrerende. Bildene er nøytrale illustrasjonsfoto og ikke private bilder. Ingen lagringsstatus her betyr at noe faktisk er sikkerhetskopiert.</li>
+            <li><strong>Sikkerhetskopi:</strong> «Last ned reisebok» lager en ekte ZIP med originalbilder, lesbar HTML og data.json. Synkronisering er ikke en sikkerhetskopi – sletter en av dere noe, forsvinner det hos begge.</li>
+            <li><strong>Uten nett:</strong> en reise kan lastes ned til telefonen med valgt bildeomfang.</li>
+            <li><strong>Gjenstår:</strong> selve PDF-nedlastingen. Forhåndsvisningen viser hvordan den blir, men filen lages ikke ennå.</li>
+            <li>Demoreisene er illustrerende startinnhold og kan redigeres eller slettes. Bildene er nøytrale illustrasjonsfoto og ikke private bilder.</li>
           </ul>
         </section>
         <section>
           <h2 style={h2}>Må valideres på deres Android-telefoner</h2>
           <ul style={{ ...ul, gap: 4 }}>
             <li><strong>Mange store bilder:</strong> minnebruk ved valg av 50+ HEIC/JPEG, generering av visningskopier på enheten, lagringskvote for PWA (IndexedDB/OPFS) og hva som skjer når plassen tar slutt.</li>
-            <li><strong>Avbrutt nett:</strong> gjenopptakbar opplasting i biter, idempotente ID-er mot duplikater, kø som overlever at appen lukkes. Background Sync er upålitelig på Android – designet lover ikke bakgrunnsfullføring.</li>
+            <li><strong>Avbrutt nett:</strong> at køen overlever at appen lukkes, og at nye forsøk ikke lager duplikater. Opplasting skjer per bilde, ikke i biter, så et avbrutt stort bilde sendes på nytt fra start. Background Sync er upålitelig på Android – designet lover ikke bakgrunnsfullføring.</li>
             <li><strong>Omstart av appen:</strong> at utkast og kø gjenopprettes, og at «Lagret» aldri vises før skrivingen er bekreftet.</li>
-            <li><strong>Samtidige endringer:</strong> versjonering per felt (felles tekst vs. personlige felt), konfliktvisning som her, og at den andre telefonen får endringen.</li>
+            <li><strong>Samtidige endringer:</strong> at sammenslåingen oppfører seg som forventet i ekte bruk, og at konfliktvisningen er forståelig når den dukker opp.</li>
             <li><strong>Bildevelger og EXIF:</strong> at Androids bildevelger gir tilgang til fotograferingstidspunkt og posisjon (strippes ofte), og tidssone-håndtering.</li>
             <li><strong>Kart offline:</strong> flis-caching er bevisst utelatt i første versjon; listevisning må være fullgod.</li>
             <li><strong>Ett minne, mange visninger:</strong> datamodell der historie, bok og galleri bare refererer til minner og bilder (ingen kopier), og at bildeflagg synkroniseres per bilde.</li>
-            <li><strong>Skrivestatus vs. synk:</strong> at to telefoner kan fortsette på samme «Under arbeid»-minne uten å overskrive hverandre (versjonering per felt).</li>
+            <li><strong>Innlogging fra hjemskjermen:</strong> at engangskoden fungerer i den installerte appen, og at lenken i e-posten åpner riktig.</li>
             <li><strong>PDF-generering</strong> med mange bilder på telefon eller server – minne, tid og fonter.</li>
             <li><strong>Installasjon på hjemskjerm,</strong> tommelrekkevidde og store trykkflater på deres faktiske skjermstørrelser.</li>
           </ul>

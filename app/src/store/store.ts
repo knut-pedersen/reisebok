@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { SyncState } from '../sync/engine';
 import type { Archive, Dream, ImportItem, Memory, OfflineScope, PersonId, Photo, Place, StoryBlock, Trip, TripPrecision, MemType, WriteStatus } from '../data/types';
 import { demoArchive, importDemo } from '../data/demo';
-import { deleteBlob, isQuotaError, loadArchive, putBlob, readPref, requestPersistence, saveArchive, writePref } from '../lib/db';
+import { deleteBlob, getBlob, isQuotaError, loadArchive, putBlob, readPref, requestPersistence, saveArchive, writePref } from '../lib/db';
 import { fmtDate, otherPerson, PEOPLE, uid } from '../lib/format';
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,8 @@ interface UiState {
   exportSel: string;
   exportStep: 0 | 1 | 2 | 3;
   exportPct: number;
+  /** Shown when building the ZIP failed. */
+  exportError: string;
   exportFormat: 'pdf' | 'zip';
   offlinePick: string | null;
   /** Title shown in the mobile top bar. */
@@ -137,6 +139,7 @@ export const useStore = create<State>()(() => ({
   exportSel: 'cannes-2025',
   exportStep: 0,
   exportPct: 0,
+  exportError: '',
   exportFormat: 'zip',
   offlinePick: null,
   pageTitle: '',
@@ -731,36 +734,89 @@ function finishImport() {
 }
 
 // ---------------------------------------------------------------------------
-// Offline download of a trip and export (simulated)
+// Offline download of a trip and export
 // ---------------------------------------------------------------------------
 
+// The sync client imports the store, so it is loaded lazily here to avoid a cycle.
+const syncClient = () => import('../sync/client');
+
+const offlineRuns = new Set<string>();
+const tripPhotos = (tripId: string) => {
+  const seen = new Set<string>();
+  return get().memories.filter(m => m.tripId === tripId).flatMap(m => m.photos).filter(p => !seen.has(p.id) && !!seen.add(p.id));
+};
+
+/**
+ * Makes a trip readable without network. Text is always on the phone; photos are saved
+ * as display copies or originals. Pauses when the network drops; «Fortsett» picks up what's missing.
+ */
 export function startOffline(id: string, scope: OfflineScope) {
-  set(s => ({ offlinePick: null, offlineDl: { ...s.offlineDl, [id]: { status: 'laster', pct: 0, scope } } }));
-  const step = () => {
-    const d = get().offlineDl[id];
-    if (!d || d.status !== 'laster') return;
-    if (!isOnline()) { set(s => ({ offlineDl: { ...s.offlineDl, [id]: { ...d, status: 'pause' } } })); return; }
-    const pct = Math.min(100, d.pct + 9);
-    set(s => ({ offlineDl: { ...s.offlineDl, [id]: { ...d, pct, status: pct >= 100 ? 'klar' : 'laster' } } }));
-    if (pct < 100) later(step, 260);
-  };
-  later(step, 300);
+  const photos = tripPhotos(id).filter(p => !p.blobKey);
+  set(s => ({ offlinePick: null, offlineDl: { ...s.offlineDl, [id]: { status: scope === 'tekst' || !photos.length ? 'klar' : 'laster', pct: scope === 'tekst' || !photos.length ? 100 : 0, scope, total: photos.length, failed: 0 } } }));
+  if (scope !== 'tekst' && photos.length) void runOffline(id, scope === 'alle' ? 'original' : 'display');
 }
-export const resumeOffline = (id: string) => { const d = get().offlineDl[id]; if (d) startOffline(id, d.scope); };
-export const removeOffline = (id: string) => set(s => { const o = { ...s.offlineDl }; delete o[id]; return { offlineDl: o }; });
+
+async function runOffline(id: string, kind: 'display' | 'original') {
+  if (offlineRuns.has(id)) return;
+  offlineRuns.add(id);
+  const upd = (patch: Partial<NonNullable<State['offlineDl'][string]>>) => set(s => (s.offlineDl[id] ? { offlineDl: { ...s.offlineDl, [id]: { ...s.offlineDl[id], ...patch } } } : {}));
+  try {
+    const { photoBlob, offlineKey } = await syncClient();
+    const photos = tripPhotos(id).filter(p => !p.blobKey);
+    let done = 0, failed = 0;
+    for (const p of photos) {
+      if (get().offlineDl[id]?.status !== 'laster') return;      // removed or cancelled
+      if (!isOnline()) { upd({ status: 'pause' }); return; }
+      const key = offlineKey(p.id, kind);
+      if (!(await getBlob(key).catch(() => null))) {
+        try {
+          const b = await photoBlob(p, kind);
+          if (b) await putBlob(key, b); else failed++;
+        } catch (e) {
+          if (!isOnline()) { upd({ status: 'pause' }); return; }
+          if (isQuotaError(e)) { upd({ status: 'pause', failed: failed + 1 }); toast('Ikke nok plass på telefonen til å laste ned flere bilder'); return; }
+          failed++;
+        }
+      }
+      done++;
+      upd({ pct: Math.round((done / photos.length) * 100), failed });
+    }
+    upd({ status: 'klar', pct: 100, failed, total: photos.length });
+    if (failed) toast(failed + (failed === 1 ? ' bilde' : ' bilder') + ' kunne ikke lastes ned');
+  } finally {
+    offlineRuns.delete(id);
+  }
+}
+
+export const resumeOffline = (id: string) => {
+  const d = get().offlineDl[id];
+  if (!d) return;
+  set(s => ({ offlineDl: { ...s.offlineDl, [id]: { ...d, status: 'laster' } } }));
+  void runOffline(id, d.scope === 'alle' ? 'original' : 'display');
+};
+
+/** Removes the downloaded copies (photos you added on this phone stay). */
+export function removeOffline(id: string) {
+  const photos = tripPhotos(id);
+  set(s => { const o = { ...s.offlineDl }; delete o[id]; return { offlineDl: o }; });
+  void syncClient().then(({ offlineKey }) => photos.forEach(p => { deleteBlob(offlineKey(p.id, 'display')).catch(() => {}); deleteBlob(offlineKey(p.id, 'original')).catch(() => {}); }));
+}
 
 export function openExport(id: string | null) {
-  set({ exportSel: id || get().trips.find(t => t.status !== 'planlagt')?.id || 'alt', exportStep: 0, exportPct: 0 });
+  set({ exportSel: id || get().trips.find(t => t.status !== 'planlagt')?.id || 'alt', exportStep: 0, exportPct: 0, exportError: '' });
 }
 
-export function prepareExport() {
-  set({ exportStep: 1, exportPct: 0 });
-  const step = () => {
-    const p = Math.min(100, get().exportPct + 12);
-    set({ exportPct: p, exportStep: p >= 100 ? 2 : 1 });
-    if (p < 100) later(step, 180);
-  };
-  later(step, 200);
+/** Builds the real ZIP (original photos, reisebok.html, data.json) on this phone. */
+export async function prepareExport() {
+  set({ exportStep: 1, exportPct: 0, exportError: '' });
+  try {
+    const [{ buildExport }, { photoBlob }] = await Promise.all([import('../lib/exportZip'), syncClient()]);
+    const s = get();
+    await buildExport(s, s.exportSel, p => photoBlob(p, 'original'), (done, total) => set({ exportPct: total ? Math.round((done / total) * 100) : 100 }));
+    set({ exportStep: 2, exportPct: 100 });
+  } catch (e) {
+    set({ exportStep: 0, exportError: isQuotaError(e) ? 'Ikke nok minne eller plass på telefonen til å lage filen. Prøv én reise om gangen.' : 'Kunne ikke lage eksportfilen. Prøv igjen.' });
+  }
 }
 
 // ---------------------------------------------------------------------------

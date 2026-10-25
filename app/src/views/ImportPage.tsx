@@ -3,18 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { BackLink, Dot } from '../components/bits';
 import { Img } from '../components/Photo';
 import type { ImportItem } from '../data/types';
-import { fmtDate, fmtShort, weekday } from '../lib/format';
+import { fmtDate, fmtShort, plural, weekday } from '../lib/format';
 import { paths, useBack } from '../lib/nav';
 import { usePageTitle } from '../lib/page';
 import { colors, tripMeta } from '../store/derive';
 import {
   addImportFiles, applyDateFix, applyPlaceFix, confirmPlace, dropDup, groupKey, impConfirmDo, impSet, isOnline, keepDup,
-  moveImp, removeImp, retryFailed, setGroupTarget, setImpCaption, setItemDate, setItemPlace, startImport, startUpload,
+  moveImp, removeImp, retryAll, setGroupTarget, setImpCaption, setItemDate, setItemPlace, startImport, startUpload,
   toggleImpBook, toggleImpFeat, useDemoImport, useStore, type ImportState,
 } from '../store/store';
 
-const STATUS_COLOR: Record<ImportItem['status'], string> = { venter: colors.faint, laster: colors.amber, ok: colors.oliveDeep, feil: colors.terracotta, nett: colors.amber };
-const STATUS_LABEL: Record<ImportItem['status'], string> = { venter: 'Venter', laster: 'Laster opp …', ok: 'Lagt til', feil: 'Feilet – prøv igjen', nett: 'Venter på nett' };
+// Step 4: the photos are already saved on this phone; each one's upload status comes from the sync engine's work.
+type UpStatus = 'lagt' | 'opp' | 'lokal' | 'nett' | 'feil' | 'laster' | 'venter';
+const STATUS_COLOR: Record<UpStatus, string> = { lagt: colors.oliveDeep, opp: colors.oliveDeep, lokal: colors.amber, nett: colors.amber, feil: colors.terracotta, laster: colors.amber, venter: colors.faint };
+const STATUS_LABEL: Record<UpStatus, string> = { lagt: 'Lagt til', opp: 'Lastet opp', lokal: 'Lagret på telefonen', nett: 'Venter på nett', feil: 'Feilet – prøv igjen', laster: 'Laster opp …', venter: 'Venter' };
 
 const panel: CSSProperties = { padding: '14px 16px', marginBottom: 12 };
 const selectStyle: CSSProperties = { minHeight: 44, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(46,53,47,.25)', background: 'var(--cream)' };
@@ -97,10 +99,27 @@ export default function ImportPage() {
       : 'Endrer gruppen «' + gName + '» (' + groupsMap[k].length + ' bilder), som blir ' + tgtLabel(k) + ' i «' + tripTitle + '»: stedet settes til ' + (pl ? pl.name : '') + '. Posisjonen er et forslag – bekreft at det var her dere var.';
   };
 
-  const ok = items.filter(i => i.status === 'ok').length, fail = items.filter(i => i.status === 'feil').length, net = items.filter(i => i.status === 'nett').length;
-  const pct = items.length ? Math.round((ok / items.length) * 100) : 0;
-  const summary = fail ? ok + ' av ' + items.length + ' bilder lagt til · ' + fail + ' feilet' : net ? net + ' bilder venter på nett' : ok + ' av ' + items.length + ' bilder lagt til';
-  const canRetry = fail > 0 || (net > 0 && online);
+  const photoById = new Map(s.memories.flatMap(m => m.photos).map(p => [p.id, p]));
+  const upStatus = (it: ImportItem): UpStatus => {
+    const p = photoById.get(it.id);
+    if (!p) return 'venter';
+    if (!p.blobKey) return 'lagt';                      // demo photo: nothing to upload
+    if (p.path) return 'opp';
+    if (s.mode === 'local') return 'lokal';
+    if (!online) return 'nett';
+    if (s.sync.phase === 'error') return 'feil';
+    return 'laster';
+  };
+  const statuses = items.map(upStatus);
+  const count = (...k: UpStatus[]) => statuses.filter(x => k.includes(x)).length;
+  const added = count('lagt', 'opp', 'lokal', 'nett', 'feil', 'laster');
+  const toUpload = count('opp', 'nett', 'feil', 'laster');
+  const uploaded = count('opp');
+  const fail = count('feil'), net = count('nett');
+  const ok = added;
+  const pct = s.mode === 'local' || !toUpload ? (items.length ? Math.round((added / items.length) * 100) : 0) : Math.round((uploaded / toUpload) * 100);
+  const summary = plural(added, 'bilde', 'bilder') + ' lagt til i «' + tripTitle + '»' + (s.mode === 'cloud' && toUpload ? ' · ' + uploaded + ' av ' + toUpload + ' lastet opp' : '');
+  const canRetry = fail > 0 && online;
 
   const step = (n: ImportState['step']) => impSet({ step: n });
   const onFiles = (list: FileList | File[] | null) => {
@@ -331,19 +350,21 @@ export default function ImportPage() {
                 <div className="xs muted">{pct} %</div>
               </div>
               <div className="progress" style={{ margin: '10px 0' }}><div style={{ width: pct + '%' }} /></div>
-              {net > 0 && <p className="small muted" style={{ margin: '6px 0 10px' }}>Bildene er lagret på denne telefonen og venter på nett. Du kan lukke appen – køen fortsetter når du åpner den igjen med nett. Store opplastinger fullføres ikke i bakgrunnen mens appen er lukket.</p>}
-              {fail > 0 && <p className="small" style={{ margin: '6px 0 10px', color: '#A9553C' }}>{fail} bilder kunne ikke lastes opp. De er fortsatt lagret på telefonen. Nytt forsøk lager ikke duplikater.</p>}
+              {s.mode === 'local' && <p className="small muted" style={{ margin: '6px 0 10px' }}>Bildene er lagret på denne telefonen. Appen er ikke koblet til det felles arkivet, så de lastes ikke opp.</p>}
+              {net > 0 && <p className="small muted" style={{ margin: '6px 0 10px' }}>Bildene er lagret på denne telefonen og venter på nett. Opplastingen fortsetter når du åpner appen igjen med nett. Store opplastinger fullføres ikke i bakgrunnen mens appen er lukket.</p>}
+              {s.mode === 'cloud' && online && toUpload > uploaded && !fail && <p className="small muted" style={{ margin: '6px 0 10px' }}>Bildene er lagret på denne telefonen og lastes opp nå. La appen være åpen til opplastingen er ferdig.</p>}
+              {fail > 0 && <p className="small" style={{ margin: '6px 0 10px', color: '#A9553C' }}>{plural(fail, 'bilde', 'bilder')} kunne ikke lastes opp. De er fortsatt lagret på telefonen. Nytt forsøk lager ikke duplikater.</p>}
               <div className="row wrap" style={{ gap: 8 }}>
-                {canRetry && <button className="btn btn-primary" style={{ padding: '0 16px', fontSize: 14 }} onClick={retryFailed}>Prøv igjen</button>}
+                {canRetry && <button className="btn btn-primary" style={{ padding: '0 16px', fontSize: 14 }} onClick={retryAll}>Prøv igjen</button>}
                 {ok > 0 && (imp.added || imp.tripChoice !== 'ny') &&<button className="btn btn-outline clear" style={{ fontSize: 14 }} onClick={() => navigate(paths.trip(imp.resultTripId || imp.tripChoice, { tab: 'bilder' }))}>Åpne reisen</button>}
               </div>
             </div>
             <div className="stack" style={{ gap: 6 }}>
-              {items.map(it => (
+              {items.map((it, idx) => (
                 <div key={it.id} className="row" style={{ gap: 10, padding: '6px 0', borderBottom: '1px solid rgba(46,53,47,.08)', fontSize: 14 }}>
                   <Thumb item={it} size={40} />
                   <span className="muted" style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</span>
-                  <span className="row" style={{ gap: 6, fontWeight: 500, color: STATUS_COLOR[it.status] }}><Dot color={STATUS_COLOR[it.status]} size={8} />{STATUS_LABEL[it.status]}</span>
+                  <span className="row" style={{ gap: 6, fontWeight: 500, color: STATUS_COLOR[statuses[idx]] }}><Dot color={STATUS_COLOR[statuses[idx]]} size={8} />{STATUS_LABEL[statuses[idx]]}</span>
                 </div>
               ))}
             </div>

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { Avatar, BackLink, Dot } from '../components/bits';
 import { resetAll } from '../lib/db';
 import { PEOPLE, fmtTime, otherPerson } from '../lib/format';
@@ -6,6 +8,7 @@ import { paths, useBack } from '../lib/nav';
 import { usePageTitle } from '../lib/page';
 import { queueStatus, tripMeta } from '../store/derive';
 import { logout, openExport, removeOffline, startOffline, switchUser, useStore } from '../store/store';
+import { resetSyncState, signOut } from '../sync/client';
 
 const scopeLabel = { visning: 'visningskopier', alle: 'alle originalbilder', tekst: 'bare tekst' };
 
@@ -16,12 +19,11 @@ export default function SettingsPage() {
   usePageTitle('Innstillinger');
   const qs = queueStatus(s);
   const me = PEOPLE[s.user], other = PEOPLE[otherPerson(s.user)];
-  const pending = s.queue.filter(i => i.status !== 'synk').length;
-  const reset = async () => {
-    if (!confirm('Tilbakestille til demoinnholdet? Alt som er lagt til på denne telefonen slettes.')) return;
-    await resetAll();
-    location.reload();
-  };
+  const cloud = s.mode === 'cloud';
+  const pending = cloud ? s.sync.pending : 0;
+  const [confirm, setConfirm] = useState<'reset' | 'refetch' | 'logout' | null>(null);
+  const reset = async () => { await resetAll(); location.reload(); };
+  const refetch = async () => { await resetSyncState(); await resetAll(); location.reload(); };
   const section = { padding: 16 } as const;
 
   return (
@@ -39,17 +41,30 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
-          <p style={{ margin: '12px 0 10px', fontSize: 14 }}>Du er logget inn som <strong>{me.name}</strong>. Ett felles arkiv, privat for dere to – ingen offentlig deling eller følgere.</p>
-          <div className="row wrap" style={{ gap: 8 }}>
-            <button className="btn btn-outline clear btn-sm" onClick={switchUser}>Bytt til {other.name} (simulert)</button>
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Logg ut</button>
-          </div>
+          {cloud ? (
+            <>
+              <p style={{ margin: '12px 0 10px', fontSize: 14 }}>Du er logget inn som <strong>{me.name}</strong>{s.email && <> ({s.email})</>}. Ett felles arkiv, privat for dere to – ingen offentlig deling eller følgere.</p>
+              <button className="btn btn-outline clear btn-sm" onClick={() => setConfirm('logout')}>Logg ut</button>
+            </>
+          ) : (
+            <>
+              <p style={{ margin: '12px 0 10px', fontSize: 14 }}>Du bruker appen som <strong>{me.name}</strong>. Den er ikke koblet til det felles arkivet, så alt lagres bare på denne telefonen.</p>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <button className="btn btn-outline clear btn-sm" onClick={switchUser}>Bytt til {other.name}</button>
+                <button className="btn btn-ghost btn-sm" onClick={logout}>Logg ut</button>
+              </div>
+            </>
+          )}
         </section>
         <section className="card" style={section}>
           <h2 className="h2" style={{ margin: '0 0 8px' }}>Synkronisering</h2>
           <div className="row" style={{ gap: 8, fontWeight: 600, color: qs.tone }}><Dot color={qs.tone} size={10} />{qs.label}</div>
-          <p className="small muted" style={{ margin: '6px 0 10px' }}>Siste vellykkede synkronisering: {fmtTime(s.lastSync)} · {pending} venter. Synkronisering og sikkerhetskopiering er forskjellige funksjoner; lokal lagring er ingen sikkerhetskopi.</p>
-          <button className="btn btn-outline clear btn-sm" onClick={() => useStore.setState({ syncOpen: true })}>Vis køen og simuler tilstander</button>
+          {cloud ? (
+            <p className="small muted" style={{ margin: '6px 0 10px' }}>Siste vellykkede synkronisering: {fmtTime(s.lastSync)} · {pending === 0 ? 'ingenting venter' : pending + ' endring' + (pending === 1 ? '' : 'er') + ' venter'}. Synkronisering er ikke en sikkerhetskopi: sletter en av dere noe, forsvinner det hos begge. Last ned en kopi under Eksport.</p>
+          ) : (
+            <p className="small muted" style={{ margin: '6px 0 10px' }}>Appen er ikke koblet til det felles arkivet. Alt finnes bare på denne telefonen, og {other.name} ser det ikke.</p>
+          )}
+          <button className="btn btn-outline clear btn-sm" onClick={() => useStore.setState({ syncOpen: true })}>Vis det som venter</button>
         </section>
         <section className="card" style={section}>
           <h2 className="h2" style={{ margin: '0 0 4px' }}>Tilgjengelig offline</h2>
@@ -75,13 +90,34 @@ export default function SettingsPage() {
           <button className="btn btn-dark" style={{ fontSize: 14, padding: '0 16px' }} onClick={() => { openExport(null); navigate(paths.export()); }}>Last ned reisebok</button>
         </section>
         <button onClick={() => navigate(paths.about())} className="row" style={{ textAlign: 'left', border: '1px dashed var(--line-strong)', borderRadius: 12, padding: '14px 16px', background: 'transparent', justifyContent: 'space-between', gap: 12 }}>
-          <span><span style={{ display: 'block', fontWeight: 600 }}>Om appen</span><span className="small muted" style={{ display: 'block' }}>Designvalg, hva som kan testes, hva som er simulert, tekniske spørsmål</span></span>
+          <span><span style={{ display: 'block', fontWeight: 600 }}>Om appen</span><span className="small muted" style={{ display: 'block' }}>Designvalg, hva som kan testes, hva som er ekte og hva som gjenstår</span></span>
           <span style={{ color: 'var(--faint)', fontSize: 18 }}>›</span>
         </button>
         <div>
-          <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: 0 }} onClick={reset}>Tilbakestill demoinnhold</button>
+          {cloud
+            ? <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: 0 }} onClick={() => setConfirm('refetch')}>Hent arkivet på nytt fra serveren</button>
+            : <button className="btn btn-ghost btn-sm" style={{ fontSize: 13, padding: 0 }} onClick={() => setConfirm('reset')}>Tilbakestill demoinnhold</button>}
         </div>
       </div>
+      {confirm === 'reset' && (
+        <ConfirmDialog title="Tilbakestille til demoinnholdet?" confirmLabel="Tilbakestill" onClose={() => setConfirm(null)} onConfirm={() => void reset()}>
+          Alt som er lagt til på denne telefonen slettes, og demoreisene kommer tilbake. Dette kan ikke angres.
+        </ConfirmDialog>
+      )}
+      {confirm === 'refetch' && (pending > 0 ? (
+        <ConfirmDialog title="Noe venter fortsatt på å bli sendt" confirmLabel="Vis det som venter" onClose={() => setConfirm(null)} onConfirm={() => useStore.setState({ syncOpen: true })}>
+          {pending} endring{pending === 1 ? '' : 'er'} på denne telefonen er ikke sendt ennå og ville gått tapt. Vent til alt er synkronisert, og prøv igjen.
+        </ConfirmDialog>
+      ) : (
+        <ConfirmDialog title="Hente arkivet på nytt?" confirmLabel="Hent på nytt" onClose={() => setConfirm(null)} onConfirm={() => void refetch()}>
+          Kopien på denne telefonen slettes, også bilder lastet ned for bruk uten nett, og hele det felles arkivet hentes på nytt fra serveren. Ingenting på serveren endres.
+        </ConfirmDialog>
+      ))}
+      {confirm === 'logout' && (
+        <ConfirmDialog title="Logge ut?" confirmLabel="Logg ut" onClose={() => setConfirm(null)} onConfirm={() => void signOut()}>
+          Det som er lagret på denne telefonen, blir liggende.{pending > 0 && <> {pending} endring{pending === 1 ? '' : 'er'} som ikke er sendt ennå, sendes neste gang du logger inn med nett.</>}
+        </ConfirmDialog>
+      )}
     </>
   );
 }

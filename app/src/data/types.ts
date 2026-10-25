@@ -143,6 +143,9 @@ export interface OfflineDl {
   status: 'laster' | 'pause' | 'klar';
   pct: number;
   scope: OfflineScope;
+  /** Photos to download, and how many could not be fetched. */
+  total?: number;
+  failed?: number;
 }
 
 /** Everything that is stored on this phone. */
