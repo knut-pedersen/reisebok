@@ -2,7 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Served from a sub-path on GitHub Pages (BASE_PATH=/reisebok/), from / everywhere else.
+const base = process.env.BASE_PATH || '/';
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -13,7 +17,8 @@ export default defineConfig({
         short_name: 'Reisebok',
         description: 'Stedene vi har vært. Øyeblikkene vi vil huske.',
         lang: 'nb',
-        start_url: '/',
+        start_url: base,
+        scope: base,
         display: 'standalone',
         background_color: '#F6F0E6',
         theme_color: '#F6F0E6',
@@ -25,7 +30,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
-        navigateFallback: '/index.html',
+        navigateFallback: base + 'index.html',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),

@@ -11,6 +11,10 @@ npm run build      # type-check + production build with service worker
 npm run preview    # serve the build (the PWA install and offline shell work here)
 ```
 
+## Deploy
+
+Every push to `main` builds and publishes the app to GitHub Pages (`.github/workflows/deploy.yml`) at `https://<owner>.github.io/<repo>/`. The build sets `BASE_PATH=/<repo>/` so routes, the manifest and the service worker work from that sub-path, and copies `index.html` to `404.html` so deep links survive a reload. In the repository settings, Pages must use «GitHub Actions» as its source.
+
 ## Stack
 
 - Vite, React 19, TypeScript and React Router.
