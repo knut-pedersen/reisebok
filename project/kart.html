@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kart – Vår reisebok</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html,body,#map{margin:0;height:100%;background:#EDE6D9;font-family:'IBM Plex Sans',system-ui,sans-serif;color:#2E352F}
+.leaflet-tile-pane{filter:grayscale(.65) sepia(.28) contrast(.92) brightness(1.04)}
+.leaflet-container{background:#D9DFD8;font-family:inherit}
+.leaflet-control-attribution{font-size:10px;background:rgba(255,252,246,.88);color:#2E352F;padding:2px 6px}
+.leaflet-control-attribution a{color:#566350}
+.leaflet-bar{border:1px solid rgba(46,53,47,.2);box-shadow:0 1px 3px rgba(46,53,47,.12)}
+.leaflet-bar a{background:#FFFCF6;color:#2E352F;width:40px;height:40px;line-height:40px;font-size:18px}
+.leaflet-bar a:hover{background:#F6F0E6}
+.leaflet-div-icon{background:none;border:0}
+.rb-dest{display:inline-flex;align-items:center;gap:7px;padding:5px 11px 5px 5px;border-radius:999px;background:#66745B;color:#FFFCF6;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(46,53,47,.25);border:2px solid #FFFCF6;transform:translate(-18px,-50%);cursor:pointer;line-height:1}
+.rb-dest img{width:24px;height:24px;border-radius:50%;object-fit:cover;background:#B9A890}
+.rb-dest .n{padding:0}
+.rb-dest small{font-weight:500;opacity:.85;margin-left:2px}
+.rb-dest.planlagt{background:#FFFCF6;color:#2E352F;border:2px dashed #A9553C}
+.rb-dest.drom{background:#F6F0E6;color:#566350;border:2px dotted #8F9A86;box-shadow:none}
+.rb-dest.sel{box-shadow:0 0 0 3px rgba(169,85,60,.45),0 2px 6px rgba(46,53,47,.25)}
+.rb-place{position:relative;width:34px;height:34px;border-radius:50%;background:#66745B;color:#FFFCF6;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #FFFCF6;box-shadow:0 2px 5px rgba(46,53,47,.3);transform:translate(-50%,-50%);cursor:pointer}
+.rb-place.mat{border-radius:50%}
+.rb-place.overnatting{border-radius:8px}
+.rb-place.kultur{border-radius:50% 50% 8px 8px}
+.rb-place.natur{border-radius:8px 50% 8px 50%}
+.rb-place.severdighet{border-radius:50% 8px 50% 8px}
+.rb-place.dim{opacity:.4}
+.rb-place.hl{background:#A9553C}
+.rb-place.sel{width:44px;height:44px;font-size:16px;box-shadow:0 0 0 4px rgba(169,85,60,.35),0 3px 8px rgba(46,53,47,.35);z-index:1000}
+.rb-place .lbl{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);background:rgba(255,252,246,.95);color:#2E352F;font-size:12px;font-weight:500;padding:3px 8px;border-radius:6px;white-space:nowrap;border:1px solid rgba(46,53,47,.15);pointer-events:none}
+.rb-place .ph{position:absolute;right:-8px;bottom:-8px;width:18px;height:18px;border-radius:50%;object-fit:cover;border:2px solid #FFFCF6;background:#B9A890}
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Kart over reisene"></div>
+<script>
+(function(){
+  var params=new URLSearchParams(location.search), mapId=params.get('id')||'main';
+  var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var map=L.map('map',{zoomControl:false,worldCopyJump:true,zoomAnimation:!reduced,fadeAnimation:!reduced,markerZoomAnimation:!reduced}).setView(params.get('c')?params.get('c').split(',').map(Number):[30,10],+(params.get('z')||2));
+  L.control.zoom({position:'bottomright'}).addTo(map);
+  // Vektorgrunnlag (Natural Earth, offentlig eiendom) – virker alltid, også når flisservere blokkerer.
+  map.createPane('base'); map.getPane('base').style.zIndex=150;
+  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json').then(function(r){return r.json();}).then(function(t){
+    L.geoJSON(topojson.feature(t,t.objects.countries),{pane:'base',interactive:false,style:{color:'#B9AC97',weight:.8,fillColor:'#F3ECDF',fillOpacity:1}}).addTo(map);
+  }).catch(function(){});
+  map.attributionControl.addAttribution('Kartdata: Natural Earth');
+  // Detaljfliser (Esri, bygger blant annet på OpenStreetMap) legges over når de er tilgjengelige.
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'Fliser © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors',maxZoom:18}).addTo(map);
+  var data={destinations:[],places:[]}, filter={tripId:null,year:null}, selected=null, layer=L.layerGroup().addTo(map);
+  var TYPE={mat:'M',overnatting:'O',kultur:'K',natur:'N',severdighet:'S',hverdag:'H'};
+  function post(m){m.source='rb-kart';m.mapId=mapId;parent.postMessage(m,'*');}
+  function tripMatch(ids){
+    if(filter.tripId&&filter.tripId!=='alle') return ids.indexOf(filter.tripId)>=0;
+    if(filter.year&&filter.year!=='alle'){ return ids.some(function(id){return id.indexOf(filter.year)>=0;}); }
+    return true;
+  }
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function render(){
+    layer.clearLayers();
+    var z=map.getZoom();
+    if(z<9){
+      data.destinations.forEach(function(d){
+        if(filter.year&&filter.year!=='alle'){ if(filter.year==='planlagt'){ if(d.status!=='planlagt') return; } else if(filter.year==='drom'){ if(d.status!=='drom') return; } else if(!tripMatch(d.tripIds)) return; }
+        else if(filter.tripId&&filter.tripId!=='alle'&&!tripMatch(d.tripIds)) return;
+        var sub=d.status==='besokt'?(d.tripIds.length+(d.tripIds.length===1?' reise':' reiser')):(d.status==='planlagt'?'kommende':'drøm');
+        var html='<div class="rb-dest '+d.status+(selected&&selected.id===d.id?' sel':'')+'" role="button" aria-label="'+esc(d.name)+', '+sub+'">'+(d.photoSrc?'<img alt="" src="'+esc(d.photoSrc)+'">':'<span style="width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.12);display:inline-block"></span>')+'<span class="n">'+esc(d.name)+'</span><small>· '+sub+'</small></div>';
+        var m=L.marker([d.lat,d.lng],{icon:L.divIcon({html:html,className:'',iconSize:[0,0]}),keyboard:true,title:d.name});
+        m.on('click',function(){selected={kind:'destination',id:d.id};render();post({type:'select',kind:'destination',id:d.id});});
+        layer.addLayer(m);
+      });
+    } else {
+      var showLbl=z>=13;
+      data.places.forEach(function(p){
+        if(filter.year&&filter.year!=='alle'&&filter.year!=='planlagt'&&filter.year!=='drom'&&!tripMatch(p.tripIds)) return;
+        var inTrip=!filter.tripId||filter.tripId==='alle'||p.tripIds.indexOf(filter.tripId)>=0;
+        var cls='rb-place '+p.type+(inTrip?(filter.tripId&&filter.tripId!=='alle'?' hl':''):' dim')+(selected&&selected.id===p.id?' sel':'');
+        var html='<div class="'+cls+'" role="button" aria-label="'+esc(p.name)+', '+esc(p.typeLabel||p.type)+'">'+(TYPE[p.type]||'•')+(p.photoSrc?'<img class="ph" alt="" src="'+esc(p.photoSrc)+'">':'')+(showLbl?'<span class="lbl">'+esc(p.name)+'</span>':'')+'</div>';
+        var m=L.marker([p.lat,p.lng],{icon:L.divIcon({html:html,className:'',iconSize:[0,0]}),keyboard:true,title:p.name});
+        m.on('click',function(){selected={kind:'place',id:p.id};render();post({type:'select',kind:'place',id:p.id});});
+        layer.addLayer(m);
+      });
+    }
+  }
+  map.on('zoomend',function(){map.getPane('base').style.display=map.getZoom()>=8?'none':'';render();post({type:'zoom',zoom:map.getZoom()});});
+  map.getPane('base').style.display=map.getZoom()>=8?'none':'';
+  map.on('click',function(){selected=null;render();post({type:'deselect'});});
+  window.addEventListener('message',function(e){
+    var m=e.data; if(!m||m.target!=='rb-kart') return; if(m.mapId&&m.mapId!==mapId) return;
+    if(m.type==='init'){ data=m.data; if(m.filter) filter=m.filter; if(m.fit&&m.fit.length){ map.fitBounds(m.fit,{padding:[40,40],maxZoom:14,animate:false}); } render(); }
+    else if(m.type==='filter'){ filter=m.filter||{}; render(); if(m.fit&&m.fit.length) map.fitBounds(m.fit,{padding:[40,40],maxZoom:14,animate:!reduced}); }
+    else if(m.type==='focus'){ selected=m.id?{id:m.id}:null; var z=m.zoom||map.getZoom(); if(reduced) map.setView([m.lat,m.lng],z,{animate:false}); else map.flyTo([m.lat,m.lng],z,{duration:.8}); setTimeout(render,50); }
+    else if(m.type==='select'){ selected=m.id?{id:m.id}:null; render(); }
+    else if(m.type==='resize'){ setTimeout(function(){map.invalidateSize();},30); }
+  });
+  post({type:'ready'});
+})();
+</script>
+</body>
+</html>
